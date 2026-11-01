@@ -28,7 +28,7 @@ FR numbers refer to README.md section 5.
 
 - [x] **P14. Tools** — `read_file`, `list_directory`, `search_code` (grep) in the sandbox (FR5.2).
 - [x] **P15. Tools** — `edit_file`, `run_tests`, `run_command` (FR5.2). The edit guards do not cover changes made through `run_command`; P33 to P36 must check the final patch.
-- [ ] **P16. Minimal loop** — think, call tool, read result, repeat; no caps yet (FR5.3).
+- [x] **P16. Minimal loop** — think, call tool, read result, repeat; no caps yet (FR5.3). Only a required `max_steps`; the system prompt has not been tried on a real model.
 - [ ] **P17. Hard caps** — max steps, cost, wall-clock; tested (FR5.4).
 - [ ] **P18. Loop detection** — repeated failed edits change strategy or stop (FR5.5).
 - [ ] **P19. Cheap pre-steps** — parse tracebacks/paths from issue, run named failing test, feed as context; log token savings (FR5.7).
