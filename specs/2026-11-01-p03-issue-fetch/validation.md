@@ -36,7 +36,7 @@ The work can be merged when every item below is true.
 - [x] Error messages read clearly to a non-developer (spot check by hand).
 - [x] `git grep -n "GITHUB_TOKEN" src/` shows no environment reads inside the client.
 - [x] `httpx` is the only new dependency in `pyproject.toml`, and `uv.lock` is refreshed.
-- [x] No secrets or tokens appear anywhere in the repo (`git grep -iE "ghp_|github_pat_"` is empty).
+- [x] No secrets or tokens appear anywhere in the repo (a grep for GitHub token prefixes finds no real tokens; tests use an obviously fake value).
 - [x] `bugbite.github` exports `GitHubClient`, `fetch_job_context`, `RepoInfo`, `IssueData`, `CommentData`, `JobContext` in addition to the P2 names.
 
 ## Docs and process
