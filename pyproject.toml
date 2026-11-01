@@ -26,4 +26,5 @@ packages = ["src/bugbite"]
 testpaths = ["tests"]
 markers = [
     "docker: needs a running Docker daemon (skipped when Docker is unreachable)",
+    "internet: needs internet access to pypi.org and github.com (skipped when unreachable)",
 ]
