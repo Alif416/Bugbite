@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 from adapter_contract import AdapterContract
+from chain_helpers import names
 from claude_helpers import HAIKU_PRICING, adapter_for as claude_adapter_for
 from claude_helpers import message, model as claude_model, text as claude_text, tool_use as claude_tool_use
 from openai_helpers import adapter_for as openai_adapter_for
@@ -201,7 +202,7 @@ def test_create_adapter_wraps_when_given_a_ledger():
     adapter = create_adapter(claude_model(), api_key="sk-ant-x", ledger=ledger)
     try:
         assert isinstance(adapter, MeteredAdapter) and adapter.ledger is ledger
-        assert isinstance(adapter.inner, ClaudeAdapter)
+        assert names(adapter) == ["MeteredAdapter", "PrivacyGuardAdapter", "ClaudeAdapter"]
     finally:
         adapter.close()
 
@@ -209,7 +210,7 @@ def test_create_adapter_wraps_when_given_a_ledger():
 def test_create_adapter_without_a_ledger_returns_the_plain_adapter():
     adapter = create_adapter(claude_model(), api_key="sk-ant-x")
     try:
-        assert isinstance(adapter, ClaudeAdapter) and not isinstance(adapter, MeteredAdapter)
+        assert names(adapter) == ["PrivacyGuardAdapter", "ClaudeAdapter"]  # no metering without a ledger
     finally:
         adapter.close()
 

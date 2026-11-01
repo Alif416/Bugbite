@@ -2,6 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from chain_helpers import raw
 from claude_helpers import KEY
 
 from bugbite.adapter import ClaudeAdapter, create_adapter, registered_providers
@@ -18,7 +19,7 @@ def test_both_real_providers_are_registered():
 def test_create_adapter_builds_the_claude_adapter_for_the_shipped_haiku_entry():
     adapter = create_adapter(MODELS["haiku"], api_key=KEY)
     try:
-        assert isinstance(adapter, ClaudeAdapter) and adapter.name == "haiku"
+        assert isinstance(raw(adapter), ClaudeAdapter) and adapter.name == "haiku"
         assert KEY not in repr(adapter)
     finally:
         adapter.close()
