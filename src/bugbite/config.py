@@ -45,14 +45,15 @@ class AppConfig:
 class SandboxConfig:
     """Sandbox container settings. All values must be positive."""
 
-    image: str = "python:3.11-slim"
+    image: str = "bugbite-sandbox:py3.11-1"
     cpus: float = 1
     memory_mb: int = 2048
     pids_limit: int = 256
     command_timeout_s: int = 120
     max_output_bytes: int = 1_048_576
     max_lifetime_s: int = 1800
-    workspace_mb: int = 1024
+    workspace_mb: int = 2048  # soft cap on /workspace disk use
+    setup_timeout_s: int = 900  # per clone/install step
 
 
 _MODEL_FIELDS: dict[str, type | tuple[type, ...]] = {

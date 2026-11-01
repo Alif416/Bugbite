@@ -9,6 +9,7 @@ from bugbite.errors import (
     IMAGE_UNAVAILABLE,
     SANDBOX_CLOSED,
     START_FAILED,
+    WORKSPACE_FULL,
     SandboxError,
 )
 from bugbite.sandbox import Sandbox, container as container_module, list_sandbox_containers
@@ -206,9 +207,9 @@ def test_no_docker_socket_and_no_host_mounts(make_sandbox):
     sb = make_sandbox()
     assert sb.run("test -e /var/run/docker.sock").exit_code != 0
     info = sb.inspect()
-    assert [m for m in info["Mounts"] if m["Type"] != "tmpfs"] == []
+    assert [(m["Type"], m["Destination"]) for m in info["Mounts"]] == [("volume", "/workspace")]
     assert info["HostConfig"]["Binds"] in (None, [])
-    assert "/workspace" in info["HostConfig"]["Tmpfs"]
+    assert not info["HostConfig"].get("Tmpfs")
 
 
 def test_no_network_by_default(make_sandbox):
@@ -275,11 +276,15 @@ def test_fork_loop_is_stopped_by_pids_limit(make_sandbox):
     assert 0 < int(r.stdout.strip()) < 32
 
 
-def test_workspace_size_is_limited(make_sandbox):
-    sb = make_sandbox()
-    r = sb.run("dd if=/dev/zero of=big bs=1M count=200")
-    assert r.exit_code != 0
-    assert "No space left" in r.stderr
+def test_workspace_soft_cap(make_sandbox):
+    sb = make_sandbox()  # SMALL: workspace_mb=64
+    assert sb.check_workspace() <= 64
+    assert sb.run("dd if=/dev/zero of=big bs=1M count=100").exit_code == 0
+    with pytest.raises(SandboxError) as info:
+        sb.check_workspace()
+    assert info.value.code == WORKSPACE_FULL
+    assert sb.run("rm big").exit_code == 0
+    assert sb.check_workspace() <= 64
 
 
 # -- cleanup and lifecycle ----------------------------------------------
