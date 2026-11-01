@@ -474,3 +474,20 @@ BUGBITE_LIVE_TESTS=1 ANTHROPIC_API_KEY=... uv run pytest tests/adapter/test_live
 ```
 
 It makes a few small calls (a fraction of a cent) and prints usage and cost. It has not been run in this repository's history yet.
+
+### Model pricing and cost tracking
+
+Each model in `config/models.yaml` has a `pricing` block in **US dollars per million tokens**: `input`, `output`, `cache_read`, `cache_write`, an optional `long_prompt` rate card (a call whose prompt is longer than `over_tokens` pays those rates for the whole call), and where the numbers came from (`as_of` date and `source`). Free models write explicit zeros. Paid models must state `as_of`, and Claude models must state their cache rates. Re-read the provider's pricing page and update `as_of` before every paid benchmark run; `pricing_is_stale()` reports prices older than 30 days.
+
+A call's **prompt length** counts input, cache-read and cache-write tokens together, and that length chooses the rate card (a prompt of exactly the threshold is still standard). Cost is exact (`Decimal`), per kind of token. For example, on Haiku 5.5, 1000 input + 200 output + 5000 cache-read + 400 cache-write tokens cost exactly $0.0003.
+
+To track cost, pass a ledger when creating an adapter:
+
+```python
+ledger = CostLedger()
+adapter = create_adapter(model, api_key=key, ledger=ledger)   # every call is recorded
+...
+ledger.total_usd, ledger.by_model(), ledger.snapshot()        # exact totals; snapshot is JSON-safe
+```
+
+Failed calls that reached the provider are recorded with their error code and no cost; requests refused locally before anything was sent are not calls. The ledger only measures. Spend caps are enforced in later phases (agent loop and spend control); `adapter.worst_case_cost(request)` gives them the most the next call could cost. Estimated token counts (from servers that report none) are flagged. Free models log tokens and time with cost 0.

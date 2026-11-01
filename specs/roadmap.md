@@ -20,7 +20,7 @@ FR numbers refer to README.md section 5.
 - [x] **P9. OpenAI-compatible adapter** — working against a free model (Ollama or free tier) (FR14.2). Live check against Groq NOT run yet (needs GROQ_API_KEY).
 - [x] **P10. Claude adapter** — Haiku, prompt caching on (FR14.2). Live check against the real API NOT run yet (needs ANTHROPIC_API_KEY). Thinking is off (AD-060).
 - [ ] **P10b. Thinking pass-through** — keep provider thinking blocks in the conversation so thinking can be on; measure thinking on versus off as an experiment (AD-060).
-- [ ] **P11. Usage and cost tracking per call** — free models log cost 0 (FR14.6). Must model cache read/write prices and Haiku 5.5's higher rates for prompts over 100K tokens (AD-063).
+- [x] **P11. Usage and cost tracking per call** — free models log cost 0 (FR14.6). Must model cache read/write prices and Haiku 5.5's higher rates for prompts over 100K tokens (AD-063).
 - [ ] **P12. Text action fallback** — JSON action parse, validate, one repair attempt (FR14.4).
 - [ ] **P13. Privacy gate** — private code blocked for providers not marked allowed (FR14.9).
 

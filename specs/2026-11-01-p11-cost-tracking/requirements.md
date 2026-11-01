@@ -63,3 +63,12 @@ See `specs/decisions.md` AD-065 to AD-069.
 ## Decision log
 
 Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-065 to AD-069).
+
+## Findings from the build (2026-11-01)
+
+- All figures were checked by hand against the Haiku 5.5 rate card; the golden example (1000 input, 200 output, 5000 cache-read, 400 cache-write tokens) is exactly $0.0003.
+- My first tier tests priced a one-million-token prompt at the standard rate. The code was right (a prompt that long is far over the 100,000-token threshold and costs $0.50 per million on the long card) and the test expectation was wrong; the tests now stay on one card per case and state the long-card figures separately.
+- `Decimal` printed the same amount with different trailing zeros depending on how it was summed, so stored money uses one canonical text form.
+- Local refusals are not recorded as calls (see the AD-067 note).
+- Six properties were broken on purpose to check the tests catch them: the strict "greater than" threshold, cache tokens counting toward prompt length, the long card being used at all, cache writes priced at their own rate, the worst case using the larger of the input and cache-write rates, and local refusals staying out of the ledger. Each made at least one test fail.
+- No paid call has been made, so none of this has been compared to a real invoice. The first real Haiku run (P47) is where the ledger total should be compared with the provider's usage page.
