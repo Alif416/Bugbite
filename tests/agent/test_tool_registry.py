@@ -31,7 +31,7 @@ def test_definitions_are_valid_and_named(sb):
     for definition in registry.definitions():
         assert definition.parameters["type"] == "object" and definition.parameters["additionalProperties"] is False
         assert len(definition.description) > 40 and "Example" in definition.description
-    assert TOOLS_VERSION == "1"
+    assert TOOLS_VERSION == "2"
 
 
 def test_definitions_are_accepted_by_request_validation(sb):
@@ -105,3 +105,16 @@ def test_the_tools_work_through_the_text_action_wrapper(sb):
     call = response.tool_calls[0]
     assert call.name == "read_file" and adapter.stats.repaired_steps == 1  # the schema is enforced, and a repair worked
     assert registry.execute(call.name, call.arguments).text == "     1| needle"
+
+
+def test_the_full_tool_set(sb):
+    from bugbite.agent.tools import build_agent_tools
+
+    registry = build_agent_tools(sb)
+    assert registry.names == ("read_file", "list_directory", "search_code", "edit_file", "run_tests", "run_command")
+    for definition in registry.definitions():
+        assert definition.parameters["additionalProperties"] is False and "Example" in definition.description
+    validate_request(GenerationRequest(messages=(Message.user("hi"),), tools=registry.definitions()))
+    for name in ("edit_file", "run_tests", "run_command"):
+        assert registry.execute(name, {"bogus": 1}).is_error
+    assert registry.execute("edit_file", {"path": "a.py", "old_text": "needle", "new_text": "thread"}).text.startswith("Edited a.py")

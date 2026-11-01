@@ -744,3 +744,35 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** A host-side check cannot see symlinks, and a repo can contain a symlink to `/etc`; only code inside the container can resolve it. `find -printf` is GNU-only, so the same tool would behave differently on the developer's Mac, where the unit tests run, and file names with newlines break line-based output. A script gives exact types, NUL-safe names and one code path in both places. The script is a constant, and model text reaches it only as separate arguments.
 - **Alternatives:** `find`/`realpath -e` shell commands (non-portable, parsing fragile); doing it all host-side (blind to symlinks).
 - **Consequences:** Relies on `python` being in the sandbox image (it is: the sandbox is built for Python repos). Unit tests run the same script on the host through a folder-backed fake sandbox; Docker tests prove the real behaviour.
+
+## AD-088: `edit_file` is exact find-and-replace, and creates files when `old_text` is omitted
+
+- **Date:** 2026-11-01 · **Phase:** P15 · **Status:** Accepted
+- **Decision:** The model gives `old_text` and `new_text`; `old_text` must match exactly once. Omitting `old_text` creates a new file (which must not exist). Edits preserve line endings, the trailing newline and the file mode.
+- **Why:** FR5.6 wants minimal edits. Replace-in-place keeps the change as small as the model's own text, costs few tokens, and fails loudly (zero or many matches) instead of guessing. Small models do this more reliably than writing diffs. Preserving mode, line endings and the final newline prevents noise in the patch that would count against the "minimal diff" goal.
+- **Alternatives:** Whole-file rewrite (invites unrelated changes, expensive); unified diff (small models often produce invalid diffs); a separate `create_file` tool (a seventh tool beyond FR5.2's list).
+- **Consequences:** The model must quote enough context to be unique; the error says how many matches there were. Multi-edit batching is left for later if needed.
+
+## AD-089: Cheating guards sit in `edit_file` as code, with a caller-only allow list
+
+- **Date:** 2026-11-01 · **Phase:** P15 · **Status:** Accepted
+- **Decision:** `edit_file` refuses existing test files, test configuration, CI files and dependency pins, and refuses skip or xfail markers in test files the agent creates. The caller may pass exact paths to allow when the issue is about them; the model cannot.
+- **Why:** FR6.5 requires these rules in code, not in the prompt, and the earliest place to stop a model from "fixing" a failing test by editing it is the tool. Stopping it at the tool also tells the model what to do instead, saving wasted steps. A caller-only switch keeps the legitimate case possible (an issue that really is about CI) without letting the model flip it.
+- **Alternatives:** Verifier only (the agent wastes steps and the problem is found late); a model-visible override flag (defeats the purpose).
+- **Consequences:** These guards do not cover changes made through `run_command`; the verifier phases (P33 to P36) must check the final patch independently. This is stated in the README as a known gap. Patch-size caps are not part of this phase.
+
+## AD-090: `run_command` runs any shell command, contained by the sandbox
+
+- **Date:** 2026-11-01 · **Phase:** P15 · **Status:** Accepted
+- **Decision:** The command is a shell string run in the repo directory inside the sandbox, with a timeout (default and maximum from the sandbox config), capped output, a fixed environment (virtualenv first on `PATH`), and a refusal to run if the sandbox still has network access.
+- **Why:** The container is already the boundary: non-root, capabilities dropped, no host mounts, no credentials, network cut after setup. Debugging needs pipes, redirects and varied tools, and an allow-list would block them and make small models stumble. The network check is a cheap extra lock so a setup mistake cannot give a model command execution with internet.
+- **Alternatives:** An allow-list of programs (safer in theory, too restrictive in practice, and easy to bypass through `python -c` anyway); no network check (relies on setup order alone).
+- **Consequences:** `run_command` is the one place model text is run as a shell command. It can modify files, including protected ones; see AD-089.
+
+## AD-091: `run_tests` returns a compact summary, not raw pytest output
+
+- **Date:** 2026-11-01 · **Phase:** P15 · **Status:** Accepted
+- **Decision:** The tool runs the existing runner and returns status, counts, up to 15 failing or erroring IDs with one-line messages, up to 5 collection errors and a 1,500-character output tail when something failed.
+- **Why:** The structured report already exists (P6); the model needs which tests fail and why, not pages of progress output, and every token is paid for on every later turn (FR3.4). The tail keeps the traceback visible when the one-line message is not enough.
+- **Alternatives:** Raw output (large and noisy); full per-test details (large for big suites).
+- **Consequences:** If the summary hides something a model needs, it can call `run_command` with pytest and its own options. Sizes are starting values for P20 to tune.

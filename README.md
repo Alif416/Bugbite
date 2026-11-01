@@ -538,4 +538,18 @@ The agent looks at the repository through three tools in `bugbite.agent.tools`. 
 | `list_directory(path?)` | one level, folders first (`/`), symlinks marked `@` | 200 entries, says how many were left out |
 | `search_code(pattern, path?, glob?, regex?)` | `path:line:text`, plain text unless `regex` | 50 matches of at most 200 characters; skips `.git`, `node_modules`, virtualenvs, caches and binary files |
 
-Paths are relative to the repo root. Absolute paths, `..` and `.git` are refused, and a symlink that leads outside the repo (or into `.git`) is refused too, because the path is resolved inside the container. Nothing is built into a shell string: model text only ever reaches the sandbox as a separate argument. The tools change nothing. The numbers above are starting values, to be tuned with real runs. Editing and running tools come in P15.
+Paths are relative to the repo root. Absolute paths, `..` and `.git` are refused, and a symlink that leads outside the repo (or into `.git`) is refused too, because the path is resolved inside the container. Nothing is built into a shell string: model text only ever reaches the sandbox as a separate argument. These three tools change nothing. The numbers above are starting values, to be tuned with real runs.
+
+### Agent tools (edit and run)
+
+`build_agent_tools(sandbox)` returns the registry with all six tools: the three above plus the ones below. `TOOLS_VERSION` is "2".
+
+| Tool | Does | Limits |
+|---|---|---|
+| `edit_file(path, new_text, old_text?)` | replaces `old_text` (which must match **exactly once**) with `new_text`; leave `old_text` out to create a new file | text files up to 1 MB; each text up to 20,000 characters; keeps line endings, the final newline and the file mode; shows the changed lines |
+| `run_tests(targets?, keyword?)` | runs pytest and returns a summary: counts, up to 15 failing tests with a one-line reason, up to 5 collection errors, and the last 1,500 characters of output if anything failed | up to 20 targets; a timeout, crash or "no tests" is stated plainly |
+| `run_command(command, timeout_s?)` | runs a shell command in the repo folder; returns the exit code and the first 3,000 and last 3,000 characters of output | the sandbox's command timeout; refuses to run if the sandbox has network access; the environment is a fixed `PATH` (the project's virtualenv first) |
+
+**What the agent may not change (README FR6.5), enforced in `edit_file` in code:** existing test files (a `tests/`, `test/` or `testing/` folder, `test_*.py`, `*_test.py`), test configuration (`pytest.ini`, `tox.ini`, `setup.cfg`, `pyproject.toml`, `noxfile.py`, `.coveragerc`, `conftest.py`), CI files (`.github/`, `.gitlab-ci.yml`, `.circleci/`, ...) and dependency pins (`requirements*.txt`, lock files, `Pipfile`, `environment.yml`). New test files can be created, but not with skip, skipif or xfail. The same checks apply to the real file behind a symlink. If an issue really is about one of these files, the **calling code** passes `allowed_edit_paths=` to `build_agent_tools`; no tool argument can do it.
+
+**Known gap:** `run_command` is a real shell inside the sandbox, so it can change a protected file (for example with `sed -i`) or tamper with the test report plugin, and the `edit_file` guards do not see that. They are a first line that keeps an honest model from wasting steps, not a proof. The defence is the verifier (P33 to P36): it must compare the final patch with the original commit, reject changes to protected files, and re-run the tests in a clean container. Until then a result from these tools must not be reported as verified.

@@ -10,7 +10,7 @@ from jsonschema.exceptions import best_match
 
 from bugbite.adapter.types import ToolDefinition, ToolResultBlock
 
-TOOLS_VERSION = "1"  # bump when any tool's description or schema changes, so recordings can say which text a run used
+TOOLS_VERSION = "2"  # bump when any tool's description or schema changes, so recordings can say which text a run used
 
 
 @dataclass(frozen=True)
