@@ -24,7 +24,7 @@ Create `src/bugbite/adapter/types.py`:
 2. `Message(role, blocks)` with `role` either `"user"` or `"assistant"`, and helpers `Message.user(text)`, `Message.assistant(*blocks)`, `Message.tool_results(*results)`.
 3. `ToolDefinition(name, description, parameters)`; `parameters` is a JSON Schema object. Names must match `[A-Za-z0-9_-]{1,64}`.
 4. `GenerationRequest(system, messages, tools, temperature=0.0, max_output_tokens=None, stop_sequences=())`. The system prompt is a tuple of text blocks kept apart from messages, because providers handle it differently.
-5. `Usage(input_tokens, output_tokens, cache_read_tokens=0, cache_write_tokens=0)` with a `total` property.
+5. `Usage(input_tokens, output_tokens, cache_read_tokens=0, cache_write_tokens=0)`. `input_tokens` excludes cached tokens; `prompt_tokens` adds the three prompt counts and `total` adds the output tokens (AD-046 note).
 6. Stop reasons, normalised: `end_turn`, `tool_use`, `max_tokens`, `stop_sequence`, `other`.
 7. `GenerationResponse(blocks, stop_reason, usage, model, raw_stop_reason=None, latency_s=0.0, request_id=None)` with `text` (joined text blocks) and `tool_calls` properties.
 8. JSON conversion for requests and responses: `to_dict()` and `from_dict()` with a `schema_version`. Unknown block types, missing fields, wrong types, and unknown versions are rejected with a clear error. Round-trips must be exact, including unicode.
@@ -34,7 +34,7 @@ Create `src/bugbite/adapter/types.py`:
 Create `src/bugbite/adapter/base.py`:
 
 1. `ModelAdapter` (abstract): holds the `ModelConfig`; abstract `generate(request) -> GenerationResponse`; `name` property; `estimate_tokens(request) -> int` with a default heuristic (characters divided by 4 over system, messages, and tool schemas), which adapters can override.
-2. `validate_request(request)`, called by every adapter before any network call. It raises `AdapterError("invalid_request")` unless: messages are not empty; the first message is from the user; roles alternate; assistant messages contain only text and tool calls; user messages contain only text and tool results; every tool result answers a tool call in the immediately preceding assistant message and every tool call is answered by the next user message when one exists; tool call ids are unique; tool names are unique; the temperature is between 0 and 2; `max_output_tokens`, when given, is positive.
+2. `validate_request(request)`, called by every adapter before any network call. It raises `AdapterError("invalid_request")` unless: messages are not empty; the first and the last message are from the user; roles alternate; assistant messages contain only text and tool calls; user messages contain only text and tool results; every tool result answers a tool call in the immediately preceding assistant message and every tool call is answered by the next user message when one exists; tool call ids are unique; tool names are unique; the temperature is between 0 and 2; `max_output_tokens`, when given, is positive.
 3. Helper to resolve defaults: `request.max_output_tokens` or the model's `max_output_tokens`.
 
 ## 5. Registry

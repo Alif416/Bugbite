@@ -394,6 +394,10 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Alternatives:** Anthropic-style blocks as the internal format (every other adapter translates from Claude's shape, recordings tied to one provider); OpenAI-style dicts (cache markers and tool results fit poorly, Claude adapter translates from it).
 - **Consequences:** Every adapter owns a translation layer that needs its own tests. The schema version lets recordings be migrated when the format changes.
 
+## AD-046 note: token counts in `Usage`
+
+- **Added during the build (2026-11-01):** `Usage.input_tokens` counts prompt tokens charged at the normal input rate and excludes tokens read from or written to the provider's cache; `cache_read_tokens` and `cache_write_tokens` are separate. `prompt_tokens` is the sum of the three prompt counts and `total` adds the output tokens. Adapters whose provider reports cached tokens inside its prompt count (as OpenAI-style APIs do) must subtract them, so that cost in P11 is never counted twice.
+
 ## AD-047: Whole responses only; no streaming
 
 - **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
@@ -405,7 +409,7 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 ## AD-048: Parsed tool arguments with an error field, and strict conversation validation before any call
 
 - **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
-- **Decision:** A tool call carries its arguments as a parsed dictionary plus an optional `error` string. If a model emits arguments that cannot be parsed, the call is still returned, with empty arguments and the error set, so the agent can report it back instead of crashing. A shared `validate_request` runs before any network call and rejects malformed conversations: empty messages, a first message that is not from the user, non-alternating roles, tool calls or results in the wrong role, tool results with no matching call, unanswered tool calls, duplicate call ids or tool names, an out-of-range temperature, and a non-positive output cap.
+- **Decision:** A tool call carries its arguments as a parsed dictionary plus an optional `error` string. If a model emits arguments that cannot be parsed, the call is still returned, with empty arguments and the error set, so the agent can report it back instead of crashing. A shared `validate_request` runs before any network call and rejects malformed conversations: empty messages, a first or last message that is not from the user, non-alternating roles, tool calls or results in the wrong role, tool results with no matching call, unanswered tool calls, duplicate call ids or tool names, an out-of-range temperature, and a non-positive output cap.
 - **Why:** Weaker and free models often produce broken tool JSON (README risk and FR14.4), and the loop must treat that as a recoverable step, not an exception. Providers reject malformed conversations with an error after the request is already sent, and paid providers can bill for it; checking locally first costs nothing and gives one clear message for every provider (mission principle 6: budget is a hard limit).
 - **Alternatives:** Raw argument strings (every caller parses and handles errors); letting each provider report invalid conversations (different messages, possible cost).
 - **Consequences:** The validator encodes our conversation rules, so it must be updated if the loop ever needs something the rules forbid (for example consecutive user messages).
