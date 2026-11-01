@@ -35,10 +35,9 @@ def test_basic_payload_and_url():
     assert rec.body == {
         "model": "vendor/model-7b",
         "messages": [{"role": "user", "content": "hi"}],
-        "temperature": 0.0,
         "max_tokens": 2048,  # the model's default
         "stream": False,
-    }
+    }  # no temperature: None means the server's own default
 
 
 @pytest.mark.parametrize(
@@ -78,6 +77,11 @@ def test_request_options():
 
 def test_zero_temperature_is_sent_not_dropped():
     assert send(simple(temperature=0)).body["temperature"] == 0
+
+
+def test_no_temperature_is_sent_when_none_is_asked_for():
+    assert "temperature" not in send(simple()).body
+    assert "temperature" not in send(simple(temperature=None)).body
 
 
 def test_system_blocks_are_joined_and_cache_markers_ignored():

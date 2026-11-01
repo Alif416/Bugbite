@@ -10,14 +10,17 @@ from __future__ import annotations
 
 import json
 import math
-import re
 import time
-from datetime import datetime, timezone
-from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
 
+from bugbite.adapter._http import (  # noqa: F401  (parse_retry_after is re-exported for older imports)
+    MAX_PROVIDER_MESSAGE_CHARS,
+    parse_retry_after,
+    redact,
+    shorten as _shorten,
+)
 from bugbite.adapter.base import ModelAdapter, estimate_tokens, validate_request
 from bugbite.adapter.registry import register_adapter, registered_providers
 from bugbite.adapter.types import (
@@ -47,7 +50,6 @@ from bugbite.errors import (
 )
 
 PROVIDER = "openai_compatible"
-MAX_PROVIDER_MESSAGE_CHARS = 300
 
 _CONTEXT_WORDING = (
     "context length",
@@ -68,30 +70,6 @@ _FINISH_REASONS = {
     "tool_calls": STOP_TOOL_USE,
     "function_call": STOP_TOOL_USE,
 }
-
-
-def parse_retry_after(value: str | None) -> float | None:
-    """Seconds to wait, from a Retry-After header given as seconds or as an HTTP date."""
-    if not value:
-        return None
-    value = value.strip()
-    if re.fullmatch(r"\d+(\.\d+)?", value):
-        return float(value)
-    try:
-        moment = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
-        return None
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
-    return max(0.0, (moment - datetime.now(timezone.utc)).total_seconds())
-
-
-def _shorten(text: str, limit: int = MAX_PROVIDER_MESSAGE_CHARS) -> str:
-    text = " ".join(text.split())
-    return text if len(text) <= limit else text[: limit - 3] + "..."
-
-
-_BEARER = re.compile(r"(?i)bearer\s+\S+")
 
 
 class OpenAICompatibleAdapter(ModelAdapter):
@@ -199,10 +177,11 @@ class OpenAICompatibleAdapter(ModelAdapter):
         payload: dict[str, Any] = {
             "model": self.config.model_name,
             "messages": messages,
-            "temperature": request.temperature,
             "max_tokens": self.resolve_max_output_tokens(request),
             "stream": False,
         }
+        if request.temperature is not None:  # None means "the server's default"
+            payload["temperature"] = request.temperature
         if request.stop_sequences:
             payload["stop"] = list(request.stop_sequences)
         if request.tools:
@@ -239,10 +218,7 @@ class OpenAICompatibleAdapter(ModelAdapter):
         return code if isinstance(code, int) and not isinstance(code, bool) and 400 <= code < 600 else 0
 
     def _redact(self, text: str) -> str:
-        """Providers sometimes echo credentials in error text; never pass the key or a bearer token on."""
-        if self._api_key and len(self._api_key) >= 4:
-            text = text.replace(self._api_key, "[redacted]")
-        return _BEARER.sub("Bearer [redacted]", text)
+        return redact(text, self._api_key)
 
     def _error_details(self, data: Any) -> tuple[str, str]:
         """Message and code from the common error body shapes."""

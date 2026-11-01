@@ -488,3 +488,67 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The adapter is generic, so merging does not depend on the provider, and the owner has no key yet. The only information found about free tiers came from third-party pages and showed tight limits that matter for an agent (reportedly about 8,000 tokens per minute and 200,000 per day on one Groq model; 50 requests per day on OpenRouter free models until about $10 of credits are bought), so nothing about model names, limits, or data terms is claimed as verified. FR14.9 says free hosted tiers may use prompts for training, so they only receive public repos and sandbox issues until their terms are confirmed.
 - **Alternatives:** Waiting for a key before building (blocks the plan for no code reason); OpenRouter (daily cap too small without a top-up); local Ollama (needs a large download and gives weaker tool calls; remains an option later).
 - **Consequences:** Whether Groq's free tier can finish benchmark issues depends on the confirmed limits and on rate-limit handling in P51. The first real run must record the date and terms read from Groq's own pages.
+
+---
+
+## AD-058: The Claude adapter uses the official `anthropic` SDK with its retries off
+
+- **Date:** 2026-11-01 · **Phase:** P10 · **Status:** Accepted
+- **Decision:** `ClaudeAdapter` calls Claude through the official `anthropic` Python SDK, created with `max_retries=0`, the base URL from the model config, and the key passed in by the caller. SDK exceptions are mapped to the stable adapter codes; the API's own message, shortened and with credentials redacted, goes into the error.
+- **Why:** The project's Claude API reference requires the official SDK for Python projects and says not to hand-roll HTTP. The SDK also tracks API-version headers and request shapes, which have changed several times (this very phase met the removal of sampling parameters). That differs from the OpenAI-compatible adapter (AD-052), where many unrelated servers share only a loose protocol and a small direct client is the better fit. The SDK retries 408, 409, 429, and 5xx by default; switching that off keeps AD-049 true (adapters raise immediately, retry policy lives in one place later, P51) and keeps every call visible in cost accounting.
+- **Alternatives:** Raw `httpx` calls (we would own version and shape drift); leaving SDK retries on (hidden repeated paid calls and an unclear rate-limit story).
+- **Consequences:** One more dependency, with its own HTTP stack. Tests must mock at the SDK's HTTP layer. The SDK's error types and attributes are part of what the adapter relies on and are covered by tests.
+- **Added during the build (2026-11-01), SDK 2.3.0:**
+  - It authenticates with an `Authorization: Bearer` header, not `x-api-key`, and sends API version `2026-10-21`. `messages.create` has no `temperature`, `top_p`, or `top_k` argument at all.
+  - Given no key it silently uses `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or a saved profile from the environment, so `ClaudeAdapter` refuses to be built without an explicit key (nothing is read from the environment). With an explicit key and base URL, ambient credentials are ignored; tests prove it.
+  - Its default HTTP client follows redirects, which could carry the key elsewhere, so the adapter supplies a client with redirects off.
+  - The SDK's error `message` repeats the whole response body, so error text is built from the parsed `error.message` field instead.
+  - For a malformed 200 response it returns odd objects instead of raising (a `str`, a `list`, a `Message` with `content=None`, even an error body parsed as a `Message`). Without a check these would have passed as an empty success, so the adapter validates every result and maps an error body inside a 200 by its error type.
+
+## AD-059: Temperature is optional in the interface; Claude accepts only its default (amends AD-046)
+
+- **Date:** 2026-11-01 · **Phase:** P10 · **Status:** Accepted
+- **Decision:** `GenerationRequest.temperature` is `None` by default, meaning "the provider's own default"; numbers from 0 to 2 are still allowed. The Claude adapter never sends a sampling parameter. It accepts `None` or exactly `1.0` (Claude's default) and rejects any other value with `invalid_request` before the network call. The OpenAI-compatible adapter sends temperature only when one is given. Model comparisons (FR13.2) therefore run every model at the provider default or at 1.0, and say so in the report.
+- **Why:** Claude Haiku 5.5 rejects any other value (a 400 on the current API version rules), so the old default of 0.0 could not be honoured. Silently ignoring a requested value would give Claude a different temperature from the other models without anyone noticing, which breaks the like-for-like rule of FR13.2 and mission principle 8 (measured claims only). An explicit error plus a shared default keeps the comparison honest. The owner chose this option.
+- **Alternatives:** Keep 0.0 as the default and let Claude ignore it (hidden confounder); pin an older API version (still limited to 1, and a version we would have to maintain).
+- **Consequences:** Runs are no longer near-deterministic by default; replay (P23) removes that problem for repeated experiments, because recorded responses are reused. Free models may behave less consistently at temperature 1.0 than at 0. Whether to compare at 1.0 for all models is decided at the comparison phase.
+
+## AD-060: Thinking is turned off in P10; pass-through comes in a separate phase
+
+- **Date:** 2026-11-01 · **Phase:** P10 · **Status:** Accepted
+- **Decision:** Every request sets `thinking: {"type": "disabled"}`, which Haiku 5.5 accepts at its default effort. Thinking blocks never enter the conversation. Keeping provider-specific thinking blocks in the history (so thinking can be on during tool loops) is a new roadmap phase, P10b, and thinking on versus off becomes one of the measured experiments.
+- **Why:** With thinking on, the API requires the thinking blocks to be passed back unchanged between tool calls, which the neutral message format has no block for, and editing any earlier turn afterwards (for example trimming old tool output to save context, FR14.8) makes the API return a 400 on newer accounts. Adding all that would turn P10 from a small adapter into a format change across recordings, replay, and context handling. The roadmap asks for very small phases, and the README plans before-and-after experiments, which this fits. The owner chose this option.
+- **Alternatives:** Thinking on with an opaque pass-through block now (better reasoning from the start, a much larger phase and a trimming hazard).
+- **Consequences:** Haiku's reasoning is weaker than it could be until P10b, so the first baseline numbers understate it; reports must say thinking was off. Claude models that cannot run with thinking disabled (Opus 5.5, Fable) fail with the API's own error until P10b.
+
+## AD-061: Prompt caching modes: `auto`, `explicit`, `off`
+
+- **Date:** 2026-11-01 · **Phase:** P10 · **Status:** Accepted
+- **Decision:** A `prompt_caching` model setting (default `auto`) controls caching. `auto` sets the API's top-level cache control, so the growing conversation prefix is cached on each call, and also honours the `cache` flags callers put on text blocks. `explicit` honours only those flags. `off` sends no markers, even where flagged. No more than four markers are sent per request; if more are flagged the last ones are kept, because a later marker covers everything before it. Cache effectiveness is read from the cache-read and cache-write token counts in `Usage`.
+- **Why:** README cost rules put caching on from day one, and a cache hit costs a tenth of normal input on Haiku 5.5, which matters in an agent loop that resends a long, mostly unchanged prefix 10 to 30 times per issue. `auto` removes the risk that the loop forgets to place markers, which would lose money silently. `off` and `explicit` exist because README experiment 3 (caching on or off, measured on cost) needs a switch, and because debugging is easier with caching removed. The owner chose `auto`.
+- **Alternatives:** Explicit markers only (control, but silent waste when forgotten); always on with no switch (no experiment possible).
+- **Consequences:** Cache writes cost 1.25 times the input rate, so very short or one-off calls can cost slightly more with caching on; the minimum cacheable prefix is about 512 tokens and shorter prompts simply do not cache. The setting is ignored by providers without prompt caching.
+
+## AD-062: `refusal` is a normalised stop reason
+
+- **Date:** 2026-11-01 · **Phase:** P10 · **Status:** Accepted
+- **Decision:** Add `refusal` to the normalised stop reasons. The Claude adapter maps a safety decline to it and keeps the category in the raw value (for example `refusal:cyber`). The OpenAI-compatible mapping of `content_filter` stays `other`.
+- **Why:** Haiku 5.5 runs safety classifiers that can decline a request with a normal HTTP 200 and no server-side fallback, so the loop must be able to tell "the model declined" from "the model finished" or "something else happened", for the stop condition and for failure analysis (FR11). Hiding it under `other` would make that distinction depend on parsing a raw string.
+- **Alternatives:** Mapping to `other` (loses the signal); an exception (a decline is a valid response, and the partial text may matter).
+- **Consequences:** The agent loop (P16) must decide what to do on a refusal (stop and record it, per the README's honesty rules). The set of stop reasons is part of the recorded format, so this is added before any recording exists.
+
+## AD-063: Haiku 5.5 values verified from the official pages; tier modelling deferred; placeholder error corrected
+
+- **Date:** 2026-11-01 · **Phase:** P10 · **Status:** Accepted
+- **Decision:** `config/models.yaml` now records the official Haiku 5.5 figures with their source and the date read: model ID `claude-haiku-5-5`, 1M context, $0.10 per million input tokens and $0.50 per million output tokens (for prompts up to 100,000 tokens). The higher rates for prompts over 100,000 tokens ($0.50 and $2.50), and the cache read and write prices, are written in comments and modelled in P11. The earlier placeholder values ($1 and $5) were Claude Haiku 4.5's.
+- **Why:** The README budget (5 USD) and the per-issue cap depend on correct prices, and the owner asked for them to be confirmed. The earlier values came from memory and were ten times too high for ordinary prompts; the error is recorded here so no earlier note is trusted. A single price field cannot express a price that changes with prompt length, and cost tracking is the phase that owns that.
+- **Alternatives:** Using the higher over-100K prices as a conservative single price (overstates cost five times for normal runs and hides the real budget room); modelling tiers inside P10 (belongs to P11).
+- **Consequences:** Until P11, a prompt over 100K tokens is underestimated by about five times, so agents must keep prompts small (FR3.4), and any run that exceeds 100K must be treated as unreliable on cost. Prices must be re-checked before each paid benchmark run, with the date recorded.
+
+## AD-064: One shared module for HTTP-adjacent safety helpers
+
+- **Date:** 2026-11-01 · **Phase:** P10 · **Status:** Accepted
+- **Decision:** The Retry-After parser, the provider-message shortener, and the credential redaction move from the OpenAI-compatible adapter into `bugbite/adapter/_http.py`, used by both real adapters. The old import path keeps working.
+- **Why:** Redaction and length limits are safety code; two slightly different copies would drift. The Claude adapter needs exactly the same behaviour, and the second user is the moment to share.
+- **Alternatives:** Copying the code (drift); importing from the OpenAI-compatible module (couples two unrelated adapters).
+- **Consequences:** One place to change and test. Both adapters' tests keep covering the helpers through their own error paths.

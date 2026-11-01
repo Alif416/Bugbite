@@ -32,11 +32,6 @@ def test_a_model_that_names_a_key_variable_requires_a_key():
         create_adapter(MODELS["groq-free"])
 
 
-def test_claude_still_has_no_adapter_until_its_own_phase():
-    with pytest.raises(ConfigError, match="claude"):
-        create_adapter(MODELS["haiku"], api_key="x")
-
-
 def test_the_groq_entry_is_safe_and_honest_about_what_is_unverified():
     groq = MODELS["groq-free"]
     assert groq.allow_private_code is False  # hosted free tiers may train on prompts: public repos only

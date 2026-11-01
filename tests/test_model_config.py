@@ -124,3 +124,26 @@ def test_the_shipped_models_file_loads_with_the_new_fields():
     assert models["local-free"].integration == "text_action"
     assert all(m.provider in SUPPORTED_PROVIDERS for m in models.values())
     assert all(0 < m.max_output_tokens < m.context_window for m in models.values())
+
+
+# -- prompt_caching ---------------------------------------------------------------------------------
+
+
+def test_prompt_caching_defaults_to_auto(tmp_path):
+    assert load(tmp_path).prompt_caching == "auto"
+
+
+@pytest.mark.parametrize("mode", ["auto", "explicit", "off"])
+def test_prompt_caching_modes_load(tmp_path, mode):
+    assert load(tmp_path, prompt_caching=mode).prompt_caching == mode
+
+
+@pytest.mark.parametrize("mode", ["on", "AUTO", "", None, True, 1])
+def test_unknown_prompt_caching_modes_are_rejected(tmp_path, mode):
+    with pytest.raises(ConfigError, match="prompt_caching") as info:
+        load(tmp_path, prompt_caching=mode)
+    assert "auto" in str(info.value) and "explicit" in str(info.value) and "off" in str(info.value)
+
+
+def test_constructing_a_model_directly_defaults_to_auto():
+    assert ModelConfig("n", "claude", "http://x", "m", 1000, True, 0, 0, 0, False).prompt_caching == "auto"

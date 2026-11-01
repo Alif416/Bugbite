@@ -1,6 +1,7 @@
 """Model adapter: one provider-neutral interface for talking to any model."""
 
 from bugbite.adapter.base import ModelAdapter, estimate_tokens, validate_request
+from bugbite.adapter.claude import ClaudeAdapter
 from bugbite.adapter.openai_compatible import OpenAICompatibleAdapter
 from bugbite.adapter.registry import (
     create_adapter,
@@ -16,6 +17,7 @@ from bugbite.adapter.types import (
     STOP_MAX_TOKENS,
     STOP_OTHER,
     STOP_REASONS,
+    STOP_REFUSAL,
     STOP_SEQUENCE,
     STOP_TOOL_USE,
     Block,
@@ -32,6 +34,7 @@ from bugbite.adapter.types import (
 
 __all__ = [
     "Block",
+    "ClaudeAdapter",
     "GenerationRequest",
     "GenerationResponse",
     "Message",
@@ -44,6 +47,7 @@ __all__ = [
     "STOP_MAX_TOKENS",
     "STOP_OTHER",
     "STOP_REASONS",
+    "STOP_REFUSAL",
     "STOP_SEQUENCE",
     "STOP_TOOL_USE",
     "SchemaError",

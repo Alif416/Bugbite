@@ -203,7 +203,7 @@ def test_response_validation():
 
 
 def test_stop_reasons_are_the_documented_set():
-    assert STOP_REASONS == {"end_turn", "tool_use", "max_tokens", "stop_sequence", "other"}
+    assert STOP_REASONS == {"end_turn", "tool_use", "max_tokens", "stop_sequence", "refusal", "other"}
 
 
 def test_response_text_and_tool_calls_keep_order():
@@ -359,3 +359,39 @@ def test_usage_estimated_is_required_in_json():
     del data["usage_estimated"]
     with pytest.raises(SchemaError, match="usage_estimated"):
         GenerationResponse.from_dict(data)
+
+
+# -- optional temperature --------------------------------------------------------------------------
+
+
+def test_temperature_defaults_to_the_providers_default():
+    assert GenerationRequest(messages=(Message.user("x"),)).temperature is None
+
+
+def test_a_missing_temperature_round_trips_as_null():
+    request = GenerationRequest(messages=(Message.user("x"),))
+    data = json.loads(json.dumps(request.to_dict()))
+    assert data["temperature"] is None
+    assert GenerationRequest.from_dict(data) == request
+
+
+def test_numeric_temperatures_still_round_trip():
+    for value in (0, 0.0, 0.7, 1, 2):
+        request = GenerationRequest(messages=(Message.user("x"),), temperature=value)
+        assert GenerationRequest.from_dict(request.to_dict()).temperature == value
+
+
+def test_temperature_json_must_be_a_number_or_null():
+    data = GenerationRequest(messages=(Message.user("x"),)).to_dict()
+    for bad in ("hot", True, [1]):
+        data["temperature"] = bad
+        with pytest.raises(SchemaError, match="temperature"):
+            GenerationRequest.from_dict(data)
+    del data["temperature"]
+    with pytest.raises(SchemaError, match="temperature"):
+        GenerationRequest.from_dict(data)
+
+
+def test_refusal_is_a_normalised_stop_reason():
+    response = GenerationResponse(blocks=(), stop_reason="refusal", usage=Usage(), model="m", raw_stop_reason="refusal:cyber")
+    assert GenerationResponse.from_dict(response.to_dict()) == response

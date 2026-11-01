@@ -457,3 +457,20 @@ BUGBITE_LIVE_TESTS=1 GROQ_API_KEY=... uv run pytest tests/adapter/test_live_open
 ```
 
 It makes two small calls and counts against the free tier's limits. It has not been run in this repository's history yet.
+
+### Using a Claude model
+
+`bugbite.adapter.ClaudeAdapter` calls Claude through the official `anthropic` SDK, with the SDK's own retries switched off (retry policy lives in one place, later). The default model is `haiku` in `config/models.yaml` (`claude-haiku-5-5`). The key must be passed in (`create_adapter(model, api_key=...)`); the adapter refuses to start without one and never reads the environment itself.
+
+- **Prices (read from the official pages on 2026-11-01; re-check before each paid benchmark run):** Haiku 5.5 costs $0.10 per million input tokens and $0.50 per million output tokens for prompts up to 100,000 tokens, and $0.50 / $2.50 above that; cache hits cost $0.01 per million and 5-minute cache writes $0.125. An earlier placeholder in this repository ($1 and $5) was wrong. The higher tier and the cache prices are modelled in the cost-tracking phase; until then cost estimates ignore them.
+- **Temperature:** `temperature` is optional (`None` means the provider's default). Claude Haiku 5.5 only accepts its default, so the Claude adapter rejects any other value instead of silently ignoring it, and model comparisons run all models at the default.
+- **Thinking is off** for now, so no thinking blocks enter the conversation. Models that cannot run with thinking disabled fail with the API's own error until the thinking pass-through phase (P10b).
+- **Prompt caching:** the `prompt_caching` setting in the model entry is `auto` (default: cache the growing conversation prefix and honour `cache` flags on text blocks), `explicit` (flags only), or `off`. At most four cache markers are sent per request. Read the effect from `cache_read_tokens` and `cache_write_tokens` in the usage.
+- **Refusals:** a safety decline comes back as stop reason `refusal` (the category is kept in `raw_stop_reason`); Haiku 5.5 has no server-side fallback.
+- **Live check (opt-in).** With a key from console.anthropic.com:
+
+```bash
+BUGBITE_LIVE_TESTS=1 ANTHROPIC_API_KEY=... uv run pytest tests/adapter/test_live_claude.py -s
+```
+
+It makes a few small calls (a fraction of a cent) and prints usage and cost. It has not been run in this repository's history yet.

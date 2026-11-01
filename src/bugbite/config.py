@@ -22,6 +22,7 @@ class ConfigError(Exception):
 # Providers that have (or will have) an adapter. Adding one means adding an adapter too.
 SUPPORTED_PROVIDERS = ("claude", "openai_compatible")
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
+PROMPT_CACHING_MODES = ("auto", "explicit", "off")
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -39,6 +40,7 @@ class ModelConfig:
     allow_private_code: bool
     api_key_env: str | None = None  # name of the environment variable holding the key; None for keyless models
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
+    prompt_caching: str = "auto"  # auto | explicit | off; ignored by providers without prompt caching
 
     @property
     def integration(self) -> str:
@@ -82,7 +84,7 @@ _MODEL_FIELDS: dict[str, type | tuple[type, ...]] = {
     "per_issue_cap_usd": (int, float),
     "allow_private_code": bool,
 }
-_OPTIONAL_MODEL_FIELDS = ("api_key_env", "max_output_tokens")
+_OPTIONAL_MODEL_FIELDS = ("api_key_env", "max_output_tokens", "prompt_caching")
 _NON_NEGATIVE = (
     "context_window",
     "price_per_input_token",
@@ -149,6 +151,12 @@ def _check_model_values(where: str, raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(key_env, str) or not _ENV_NAME.fullmatch(key_env):
             raise ConfigError(f"{where}: field 'api_key_env' must be an environment variable name")
         extras["api_key_env"] = key_env
+
+    if "prompt_caching" in raw:
+        mode = raw["prompt_caching"]
+        if mode not in PROMPT_CACHING_MODES:
+            raise ConfigError(f"{where}: field 'prompt_caching' must be one of: {', '.join(PROMPT_CACHING_MODES)}")
+        extras["prompt_caching"] = mode
 
     if "max_output_tokens" in raw:
         limit = raw["max_output_tokens"]
