@@ -4,3 +4,14 @@ max_steps: 30          # hard cap per job
 max_cost_usd: 0.10     # hard cap per job
 max_wall_clock_s: 600  # hard cap per job (10 minutes)
 total_budget_usd: 5.0  # whole-project API budget
+
+# Sandbox container settings (all optional; these are the defaults).
+sandbox:
+  image: python:3.11-slim
+  cpus: 1
+  memory_mb: 2048          # no swap
+  pids_limit: 256          # stops fork bombs
+  command_timeout_s: 120   # per command
+  max_output_bytes: 1048576  # per stream
+  max_lifetime_s: 1800     # container removes itself after this
+  workspace_mb: 1024       # size of /workspace (memory-backed)

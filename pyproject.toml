@@ -5,6 +5,7 @@ description = "An autonomous issue-fixing agent that opens evidence-backed pull 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "docker>=7.2.0",
     "httpx>=0.28.1",
     "pyyaml>=6.0",
 ]
@@ -23,3 +24,6 @@ packages = ["src/bugbite"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "docker: needs a running Docker daemon (skipped when Docker is unreachable)",
+]
