@@ -1,6 +1,7 @@
 """Model adapter: one provider-neutral interface for talking to any model."""
 
 from bugbite.adapter.base import ModelAdapter, estimate_tokens, validate_request
+from bugbite.adapter.openai_compatible import OpenAICompatibleAdapter
 from bugbite.adapter.registry import (
     create_adapter,
     register_adapter,
@@ -35,6 +36,7 @@ __all__ = [
     "GenerationResponse",
     "Message",
     "ModelAdapter",
+    "OpenAICompatibleAdapter",
     "ROLE_ASSISTANT",
     "ROLE_USER",
     "SCHEMA_VERSION",
