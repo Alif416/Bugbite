@@ -595,3 +595,53 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Individual call costs are fractions of a micro-dollar and totals will be compared against hard caps and a 5 USD budget; binary floats make sums depend on order and can land a hair on the wrong side of a cap. Exact decimals make "stop when the cap is reached" a plain comparison and make totals identical however they are summed. Strings in snapshots avoid precision loss in JSON.
 - **Alternatives:** Floats (small errors accumulate and comparisons surprise); integer micro-dollars (cannot represent a single token at $0.10 per million without rounding).
 - **Consequences:** Code that wants a float for display converts explicitly. Slightly more verbose arithmetic.
+
+---
+
+## AD-070: The text-action fallback is a wrapper adapter, applied automatically to non-native models
+
+- **Date:** 2026-11-01 · **Phase:** P12 · **Status:** Accepted (realises AD-051)
+- **Decision:** `TextActionAdapter(inner)` is itself a model adapter. It takes a request with tools, sends the inner adapter a text-only version, and turns the reply into the tool call (or final answer) the caller expected. `create_adapter` builds it for any model with `native_tool_calling: false`; native models are untouched. A request without tools passes through unchanged.
+- **Why:** The agent loop and every other caller must not know which kind of model they talk to (FR14.1, FR5.3); a wrapper keeps all text-action logic in one place and works over any adapter, present or future. P9 deliberately refuses tools for non-native models (AD-054) so that this conversion is explicit rather than silent. Wiring it in `create_adapter` means entry points cannot forget it.
+- **Alternatives:** A flag inside each adapter (duplicated logic); having the loop handle both styles (leaks the difference everywhere).
+- **Consequences:** The integration method (native or text action) is still reported per model from the config (FR13.8). Callers who build adapters by hand must wrap non-native models themselves.
+
+## AD-071: One JSON action per reply; tolerant extraction; prose-only replies are invalid
+
+- **Date:** 2026-11-01 · **Phase:** P12 · **Status:** Accepted
+- **Decision:** A reply must contain exactly one action, written as `{"tool": "<name>", "arguments": {...}}` or `{"final": "<text>"}`. The parser finds the JSON object in the reply wherever it is: prose around it and code fences are ignored (the prose is kept as text). Several different actions, an object with both keys, no action at all, or prose only are invalid and go to the repair step. Other keys in the object are ignored. The instruction prompt carries a version number.
+- **Why:** FR14.4 asks for one action per turn. Small models routinely add commentary, wrap output in fences, or forget the format; rejecting all of that would waste steps, while accepting a chatty reply as "the final answer" would let a model that simply forgot the format end the job early and hide the failure. Extracting the action and treating anything without one as invalid avoids both. The owner chose this option over strict-only and over prose-as-final. Recording the prompt version supports FR10.4.
+- **Alternatives:** Strict JSON-only (more failed steps); prose counts as the final answer (premature endings).
+- **Consequences:** Models that put the action somewhere unexpected (a reasoning field, tool-call markup) appear as having no action until a real model shows what is needed. Any change to the prompt must bump the version, since it changes behaviour.
+
+## AD-072: One repair attempt, then a recoverable failed step
+
+- **Date:** 2026-11-01 · **Phase:** P12 · **Status:** Accepted
+- **Decision:** An invalid reply gets exactly one repair attempt: the same request, plus the bad reply and a short message saying what was wrong and how to answer. If the repaired reply is also invalid, the step has failed and the response contains a tool call named `invalid_action` with empty arguments and an `error` describing the problem, plus the model's last reply as text, with stop reason `tool_use`. Nothing is raised. Adapter errors and refusals are never repaired. The wrapper counts steps, repaired steps, and failed steps.
+- **Why:** This is exactly what FR14.4 specifies, and the shape follows the recoverable-step design of AD-048: the loop answers the call with an error result, counts a failed step against its cap, and the model sees its mistake on the next turn, whereas raising an error would blur a model mistake with a provider fault and give the model no chance to correct itself. A second repair would spend more money on a model that is unlikely to fix it. Repairing a provider failure or a refusal would be pointless. The counters make the model comparison able to report how often each model needed help (FR13.5). The owner chose this option.
+- **Alternatives:** Raising `bad_response` (conflates failure kinds); unlimited or two repairs (cost, with diminishing returns).
+- **Consequences:** The loop (P16 to P18) must answer `invalid_action` calls with the call's `error` as the tool result. The step cap and loop detection decide how many failed steps are tolerated.
+
+## AD-073: Arguments are checked with the `jsonschema` library
+
+- **Date:** 2026-11-01 · **Phase:** P12 · **Status:** Accepted
+- **Decision:** Tool-call arguments are validated against the tool's parameter schema with the `jsonschema` package (Draft 2020-12), and the best-matching error, with its path, goes into the repair message. A tool whose own schema is invalid is refused locally before any model call.
+- **Why:** A model can only fix an argument mistake if told precisely what is wrong ("`arguments.path`: 'x' is not of type 'integer'"). The library implements the whole schema language correctly, so any tool added later is checked properly without further code, and its error messages are well tested. A hand-written checker would cover only today's six simple tools and silently skip anything fancier. The owner chose this option over a small built-in checker and over name-only checks.
+- **Alternatives:** A built-in subset checker (no dependency, silent gaps); name-only (mistakes surface as tool errors without repair).
+- **Consequences:** One new pure-Python dependency. The same check could later validate native tool calls too, which is a separate decision.
+
+## AD-074: Each model call is its own ledger entry; the step's response carries the sum
+
+- **Date:** 2026-11-01 · **Phase:** P12 · **Status:** Accepted
+- **Decision:** Metering sits inside the wrapper: `create_adapter` builds `TextActionAdapter(MeteredAdapter(raw))`. The original call and a repair are therefore two ledger entries. The response handed to the caller reports the summed tokens, latency, and estimated flag of the whole step, with the model and request id of the last call. Metering outside the wrapper is not supported (it would count the step once and hide repairs).
+- **Why:** Cost must be exact: a repair is a real paid call. Separate entries let reports count repairs and cost them on their own, which the comparison of models (FR13.5) needs, while the summed response lets the loop and per-step statistics see what one step cost. The owner chose this option over one combined entry.
+- **Alternatives:** One entry per step (tidier, but repairs become invisible).
+- **Consequences:** The ledger's call count for a non-native model is higher than the loop's step count by the number of repairs; the wrapper's counters explain the difference.
+
+## AD-075: How tool conversations are shown to a text-only model
+
+- **Date:** 2026-11-01 · **Phase:** P12 · **Status:** Accepted
+- **Decision:** In the text version of the history, a tool call is shown as its JSON action; an assistant message with no call is shown as a `{"final": ...}` action; a tool result is shown as text naming the tool and the call id, with errors marked. A failed step is shown as the model's own failed reply followed by a user message saying the reply was not a valid action, and the `invalid_action` call itself is never shown as an action. Call ids are `ta_<n>` with n one more than the number of tool calls already in the conversation, so they are unique and identical histories give identical ids.
+- **Why:** Showing history in the same format the model must produce keeps it on format. Hiding `invalid_action` stops the model learning that name as a valid thing to write. Deterministic ids keep recordings reproducible and replay exact (FR10.5), and numbering from the history avoids any hidden counter state in the wrapper.
+- **Alternatives:** Describing history in prose (the model drifts from the format); random ids (breaks replay).
+- **Consequences:** The text history is longer than a native one, which costs tokens on every call; this is part of the price of the text-action method and shows up in the comparison.
