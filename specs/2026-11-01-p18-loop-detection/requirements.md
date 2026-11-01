@@ -66,3 +66,14 @@ See `specs/decisions.md` AD-101 to AD-104.
 - Streaks of invalid actions (text-action models) and of ordinary tool errors are not detected here; they are likely with small models and may need a rule in P60.
 - A nudge costs a few tokens in the next prompt; there is no measure yet of how often a nudge rescues a run.
 - `run_command` can change files without a successful `edit_file`; an identical command repeated is treated as stuck anyway, since repeating it changes nothing the second time.
+
+## Findings from the build
+
+- The detector returns a fourth kind of signal, `reset`, for a successful edit (the plan said `ok`). The loop uses it to drop signals raised earlier in the same reply: a stop caused by the fifth identical call is cancelled if a real edit comes later in the same reply. A test covers it.
+- Identical failing edits trigger both rules: the third repeat nudges (repeated call), the fourth nudges again (failed edits to one file) and the fifth stops (repeated call). That is two notes for one behaviour; the notes are different and the second names the file. Left as is; P60 may merge them.
+- Tool names chosen by the model (an unknown tool is still "executed" and returns an error) and file paths are shown in notes and stop sentences only after control characters are replaced and the text is shortened; tests use a name containing a newline and a 300-character path.
+- Path spellings (`a.py`, `./a.py`, `a.py/`) count as one file; paths the tools reject are counted by their stripped text.
+- Existing P16 and P17 tests needed no change: none of them repeated a call with the same result three times in a way they asserted on.
+- Mutation check: 19 breakages (both thresholds off by one, stop comparison, no reset, reset on failure, unsorted arguments, error flag, output, not-executed runs, rule 2 across files, path spellings, unsafe names, nudge not delivered or on the first result, stop not ending the run, results missing after a stop, time not winning, earlier signals not cancelled, policy `None` ignored) are all caught.
+- Not measured: how often a nudge rescues a run, and how often it fires wrongly. Both need real traces.
+- Full suite (foreground): 2002 passed and 122 skipped with Docker unreachable; 2118 passed and 6 skipped with Docker running; no leftover containers or volumes.
