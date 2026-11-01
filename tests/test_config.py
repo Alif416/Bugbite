@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -18,8 +19,7 @@ VALID_MODEL = {
     "model_name": "m",
     "context_window": 1000,
     "native_tool_calling": True,
-    "price_per_input_token": 0.1,
-    "price_per_output_token": 0.2,
+    "pricing": {"input": 0.1, "output": 0.2, "as_of": "2026-11-01"},
     "per_issue_cap_usd": 0.5,
     "allow_private_code": False,
 }
@@ -50,7 +50,7 @@ def test_valid_models_load_with_all_fields(tmp_path):
     assert m.provider == "openai_compatible"
     assert m.context_window == 1000
     assert m.native_tool_calling is True
-    assert m.price_per_output_token == 0.2
+    assert m.pricing.output == Decimal("0.2")
     assert m.allow_private_code is False
 
 
@@ -85,7 +85,7 @@ def test_bool_rejected_for_numeric_field(tmp_path):
 
 @pytest.mark.parametrize(
     "field",
-    ["price_per_input_token", "price_per_output_token", "per_issue_cap_usd"],
+    ["per_issue_cap_usd"],
 )
 def test_negative_price_or_cap(tmp_path, field):
     with pytest.raises(ConfigError, match=field):
@@ -134,5 +134,5 @@ def test_shipped_example_configs_are_valid():
     models = load_models_config(ROOT / "config" / "models.yaml")
     app = load_app_config(ROOT / "config" / "app.yaml", models)
     assert app.default_model in models
-    free = [m for m in models.values() if m.price_per_input_token == 0]
+    free = [m for m in models.values() if m.is_free]
     assert free, "expected at least one free-model entry"

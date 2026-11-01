@@ -19,7 +19,7 @@ from bugbite.adapter.types import (
     ToolCallBlock,
     Usage,
 )
-from bugbite.config import ModelConfig
+from bugbite.config import ModelConfig, Pricing
 from bugbite.errors import AdapterError
 
 ScriptStep = Union[
@@ -41,8 +41,7 @@ def scripted_config(name: str = "scripted") -> ModelConfig:
         model_name="scripted-model",
         context_window=100_000,
         native_tool_calling=True,
-        price_per_input_token=0.0,
-        price_per_output_token=0.0,
+        pricing=Pricing.free(),
         per_issue_cap_usd=0.0,
         allow_private_code=True,
     )

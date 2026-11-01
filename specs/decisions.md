@@ -552,3 +552,46 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Redaction and length limits are safety code; two slightly different copies would drift. The Claude adapter needs exactly the same behaviour, and the second user is the moment to share.
 - **Alternatives:** Copying the code (drift); importing from the OpenAI-compatible module (couples two unrelated adapters).
 - **Consequences:** One place to change and test. Both adapters' tests keep covering the helpers through their own error paths.
+
+---
+
+## AD-065: Prices live in a nested `pricing` block, in dollars per million tokens (replaces the flat per-token fields)
+
+- **Date:** 2026-11-01 · **Phase:** P11 · **Status:** Accepted (supersedes the flat price fields of AD-050's `ModelConfig`; refines FR14.3)
+- **Decision:** Each model has a required `pricing` block holding input, output, cache-read, and cache-write rates in US dollars per million tokens, an optional `long_prompt` rate card (a threshold in tokens plus its own four rates), and provenance: `as_of` (a date) and `source`. Free models write explicit zeros. Rates are read as exact decimals. A paid model must state `as_of`; a `claude` model must state both cache rates. The old fields `price_per_input_token` and `price_per_output_token` are removed from the file format, and read-only helpers with those names stay on `ModelConfig` (dollars per single token) for any code that only reads them.
+- **Why:** Providers publish prices per million tokens, so numbers like `0.125` can be checked against their pages by eye, where `0.000000125` hides a misplaced zero. Cache prices and the over-100,000-token tier (found in P10 to make the earlier single-price config wrong by a factor of up to five) need more than two fields. Recording `as_of` and `source` supports the README rule to note the date and terms used for each run and makes stale prices detectable. Requiring cache rates for Claude stops a silent fall-back to the input price, which would under-bill every cache write. The owner chose this option.
+- **Alternatives:** Keeping flat per-token fields and adding four to six more of them (hard to read and check).
+- **Consequences:** Every place that built a `ModelConfig` or read the old fields changed in this phase. A forgotten `as_of` on a paid model is a load-time error rather than a silent guess. Prices still have to be re-read from the provider before each paid run; the config cannot know when they change.
+
+## AD-066: A call's rate card is chosen by its prompt length, counting cache tokens
+
+- **Date:** 2026-11-01 · **Phase:** P11 · **Status:** Accepted
+- **Decision:** For each call, the prompt length is the sum of input, cache-read, and cache-write tokens. If a `long_prompt` card exists and the prompt length is greater than its threshold (not equal to it), the whole call, including output and cache tokens, is priced on that card; otherwise on the standard card. Each component costs its tokens times its rate divided by one million. Every call is priced on its own.
+- **Why:** This is how the provider states it bills Haiku 5.5: "a request's prompt length counts all of its input tokens, including cache reads and cache writes. Each request is priced on its own: a request over the threshold pays the higher prices even when part of its prompt is a cache hit." Pricing by the same rule is the only way the ledger can match the invoice. The strict "greater than" follows the page's wording "over 100,000 tokens".
+- **Alternatives:** Pricing by input tokens only (undercounts when most of a long prompt is cached); a single blended rate (wrong in both tiers).
+- **Consequences:** A single long prompt in an otherwise cheap run is visibly expensive in the ledger (the tier is recorded per call). Context handling (FR3.4, FR14.8) matters for cost as well as for fit.
+
+## AD-067: Cost is attached by a metering wrapper and a ledger, not by changing responses
+
+- **Date:** 2026-11-01 · **Phase:** P11 · **Status:** Accepted
+- **Decision:** `MeteredAdapter(inner, ledger)` is itself a model adapter. It records every call to a `CostLedger` (tokens, tier, cost, latency, request id, stop reason; a failed call is recorded with its error code and no cost) and returns the inner adapter's response object unchanged. `create_adapter(..., ledger=...)` builds the wrapped form. The ledger is in memory and thread-safe, and offers a JSON-safe snapshot for the trace store to save later.
+- **Why:** One wrapper covers every adapter now and in the future (including the text-action wrapper in P12), so cost accounting cannot be forgotten or implemented twice. Leaving the response type alone keeps recordings provider-neutral and free of price data that may later turn out stale: cost can be recomputed from recorded usage with the prices of the time, which is what re-scoring old runs (FR10.3) needs. A shared ledger gives totals across models for the budget counter (FR13.6). The owner chose this option.
+- **Alternatives:** A `cost` field on every response (each adapter computes it, recordings carry a price that can be wrong, repricing means rewriting recordings).
+- **Consequences:** The loop must be given the metered adapter, which entry points do through `create_adapter`. Persisting the ledger waits for the trace store (P21).
+- **Added during the build (2026-11-01):** a request the adapter refuses *locally* (a malformed conversation, a temperature the model does not accept, tools for a model without native tool calling) never reaches the provider, so it is not a model call and is not recorded as a failed one; recording it would inflate failure counts. The wrapper tells the two apart by the error: `invalid_request` without an HTTP status is a local refusal, while a provider's own 400 carries its status and is recorded. Timeouts, network errors, rate limits, and server errors are recorded. Stored money is written in one canonical plain-text form (no exponent, no trailing zeros), because the same amount summed in a different order printed as `0.00030` instead of `0.0003`.
+
+## AD-068: P11 measures; it offers a worst-case projection and enforces nothing
+
+- **Date:** 2026-11-01 · **Phase:** P11 · **Status:** Accepted
+- **Decision:** The ledger enforces no cap. `worst_case_cost(pricing, prompt_tokens, max_output_tokens, margin=1)` returns the most a call could cost: every prompt token at the larger of the input and cache-write rates, every allowed output token at the output rate, on the rate card the projected prompt size selects. Per-issue, per-batch, and per-model caps stay with the agent loop (P17) and the spend-control phase (P46).
+- **Why:** The roadmap assigns enforcement to those phases, and enforcement drags in questions that do not belong here (what happens to the job, how it is labelled, how batches share a budget). A hard cap that stops before the call that would break it needs a conservative projection, so the primitive is provided now while the policy waits. The `margin` argument exists because the four-characters-per-token estimate is known to undercount on newer tokenizers; the right value should come from real usage data (P47), not a guess today. The owner chose this option.
+- **Alternatives:** Enforcing a per-issue cap in the ledger now (an early safety net, but it pulls loop and batch design into a small phase).
+- **Consequences:** Until P17 and P46 exist, nothing stops a run from spending beyond 0.10 USD; no paid run is made before then (the first is the Haiku spike, P47).
+
+## AD-069: Money is `Decimal` end to end
+
+- **Date:** 2026-11-01 · **Phase:** P11 · **Status:** Accepted
+- **Decision:** Rates, component costs, totals, and projections are `Decimal`. YAML numbers are converted through their text form, so `0.10` is exactly one tenth. Snapshots store money as strings.
+- **Why:** Individual call costs are fractions of a micro-dollar and totals will be compared against hard caps and a 5 USD budget; binary floats make sums depend on order and can land a hair on the wrong side of a cap. Exact decimals make "stop when the cap is reached" a plain comparison and make totals identical however they are summed. Strings in snapshots avoid precision loss in JSON.
+- **Alternatives:** Floats (small errors accumulate and comparisons surprise); integer micro-dollars (cannot represent a single token at $0.10 per million without rounding).
+- **Consequences:** Code that wants a float for display converts explicitly. Slightly more verbose arithmetic.

@@ -35,7 +35,7 @@ def test_a_model_that_names_a_key_variable_requires_a_key():
 def test_the_groq_entry_is_safe_and_honest_about_what_is_unverified():
     groq = MODELS["groq-free"]
     assert groq.allow_private_code is False  # hosted free tiers may train on prompts: public repos only
-    assert (groq.price_per_input_token, groq.price_per_output_token, groq.per_issue_cap_usd) == (0, 0, 0)
+    assert groq.is_free and groq.per_issue_cap_usd == 0
     assert groq.api_key_env == "GROQ_API_KEY" and groq.base_url == "https://api.groq.com/openai/v1"
     block = (ROOT / "config" / "models.yaml").read_text().split("groq-free:")[1]
     assert "UNVERIFIED" in block

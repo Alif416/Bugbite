@@ -6,16 +6,23 @@ import anthropic
 import httpx2
 
 from bugbite.adapter import ClaudeAdapter
-from bugbite.config import ModelConfig
+from bugbite.config import ModelConfig, Pricing
 
 KEY = "sk-ant-test-0123456789abcdef"
+
+# Claude Haiku 5.5 as priced on the provider's pages on 2026-11-01 (dollars per million tokens).
+HAIKU_PRICING = Pricing.of(
+    0.10, 0.50, 0.01, 0.125,
+    long_prompt=(100_000, 0.50, 2.50, 0.05, 0.625),
+    as_of="2026-11-01",
+)  # fmt: skip
 
 
 def model(base_url="https://api.anthropic.com", prompt_caching="auto", **overrides):
     values = dict(
         name="claude-model", provider="claude", base_url=base_url, model_name="claude-haiku-5-5",
-        context_window=1_000_000, native_tool_calling=True, price_per_input_token=1e-7,
-        price_per_output_token=5e-7, per_issue_cap_usd=0.1, allow_private_code=False,
+        context_window=1_000_000, native_tool_calling=True, pricing=HAIKU_PRICING,
+        per_issue_cap_usd=0.1, allow_private_code=False,
         api_key_env="ANTHROPIC_API_KEY", max_output_tokens=2048, prompt_caching=prompt_caching,
     )  # fmt: skip
     values.update(overrides)

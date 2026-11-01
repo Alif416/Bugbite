@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Callable
 
 from bugbite.adapter.base import ModelAdapter
+from bugbite.adapter.ledger import CostLedger
+from bugbite.adapter.metered import MeteredAdapter
 from bugbite.config import ConfigError, ModelConfig
 
 AdapterFactory = Callable[[ModelConfig, "str | None"], ModelAdapter]
@@ -29,11 +31,12 @@ def registered_providers() -> list[str]:
     return sorted(_factories)
 
 
-def create_adapter(model: ModelConfig, *, api_key: str | None = None) -> ModelAdapter:
+def create_adapter(model: ModelConfig, *, api_key: str | None = None, ledger: CostLedger | None = None) -> ModelAdapter:
     """Build the adapter for a model.
 
     The caller reads the environment variable named by `model.api_key_env` and
-    passes the key in; nothing here reads the environment.
+    passes the key in; nothing here reads the environment. With a `ledger`, the adapter is
+    wrapped so that every call's tokens and cost are recorded there.
     """
     factory = _factories.get(model.provider)
     if factory is None:
@@ -45,4 +48,5 @@ def create_adapter(model: ModelConfig, *, api_key: str | None = None) -> ModelAd
         raise ConfigError(
             f"model '{model.name}' needs an API key: read the {model.api_key_env} environment variable and pass it as api_key"
         )
-    return factory(model, api_key)
+    adapter = factory(model, api_key)
+    return MeteredAdapter(adapter, ledger) if ledger is not None else adapter

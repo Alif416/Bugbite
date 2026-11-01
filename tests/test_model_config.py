@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from bugbite.config import SUPPORTED_PROVIDERS, ConfigError, ModelConfig, load_models_config
+from bugbite.config import SUPPORTED_PROVIDERS, ConfigError, ModelConfig, Pricing, load_models_config
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -13,8 +13,7 @@ BASE = {
     "model_name": "m",
     "context_window": 100_000,
     "native_tool_calling": True,
-    "price_per_input_token": 0.000001,
-    "price_per_output_token": 0.000005,
+    "pricing": {"input": 1, "output": 5, "cache_read": 0.1, "cache_write": 1.25, "as_of": "2026-11-01"},
     "per_issue_cap_usd": 0.1,
     "allow_private_code": False,
 }
@@ -44,7 +43,7 @@ def test_integration_follows_native_tool_calling(tmp_path):
 
 
 def test_constructing_directly_keeps_working_without_the_new_fields():
-    model = ModelConfig("n", "claude", "http://x", "m", 1000, True, 0, 0, 0, False)
+    model = ModelConfig("n", "claude", "http://x", "m", 1000, True, Pricing.free(), 0, False)
     assert model.api_key_env is None and model.max_output_tokens == 4096
 
 

@@ -1,18 +1,28 @@
-# One entry per model. Prices are USD per token (0 for free models).
+# One entry per model. Prices live in each model's `pricing` block: US dollars per million tokens
+# (explicit zeros for free models).
 models:
   haiku:
     # Claude Haiku 5.5. Values read from the official pages (platform.claude.com pricing and models
     # overview) on 2026-11-01; re-check them, and record the date, before each paid benchmark run.
-    # Prices are for prompts up to 100,000 tokens. Over that, input is $0.50 and output $2.50 per
-    # million tokens; cache reads cost $0.01, 5-minute cache writes $0.125 (all per million, up to
-    # 100K). Tiers and cache prices are modelled in the cost-tracking phase (P11).
     provider: claude
     base_url: https://api.anthropic.com
     model_name: claude-haiku-5-5
     context_window: 1000000
     native_tool_calling: true
-    price_per_input_token: 0.0000001    # $0.10 per million
-    price_per_output_token: 0.0000005   # $0.50 per million
+    pricing:
+      # US dollars per million tokens, read from the provider's pricing page.
+      as_of: 2026-11-01
+      source: https://platform.claude.com/docs/en/about-claude/pricing
+      input: 0.10
+      output: 0.50
+      cache_read: 0.01
+      cache_write: 0.125         # 5-minute cache writes (what the adapter uses); 1-hour writes cost $0.20
+      long_prompt:               # calls with a prompt of MORE than over_tokens (cache tokens count) use this card
+        over_tokens: 100000
+        input: 0.50
+        output: 2.50
+        cache_read: 0.05
+        cache_write: 0.625
     per_issue_cap_usd: 0.10
     allow_private_code: false
     api_key_env: ANTHROPIC_API_KEY
@@ -26,8 +36,9 @@ models:
     model_name: replace-me
     context_window: 32768
     native_tool_calling: false
-    price_per_input_token: 0
-    price_per_output_token: 0
+    pricing:
+      input: 0
+      output: 0
     per_issue_cap_usd: 0
     allow_private_code: true
     max_output_tokens: 4096   # no api_key_env: local models need no key
@@ -42,8 +53,9 @@ models:
     model_name: openai/gpt-oss-120b   # confirm
     context_window: 131072            # confirm
     native_tool_calling: true         # confirm
-    price_per_input_token: 0
-    price_per_output_token: 0
+    pricing:
+      input: 0
+      output: 0
     per_issue_cap_usd: 0
     allow_private_code: false
     api_key_env: GROQ_API_KEY
