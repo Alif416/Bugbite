@@ -471,6 +471,7 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The loop, queue, and failure classifier react to codes, not provider text (AD-049). The provider's message is the most useful detail ("model not found, try pulling it first"), but request content may be private and the key must never leak, so bodies and headers stay out. Not following redirects stops the Authorization header from travelling to another host. 402 is treated as an authentication/account problem because retrying cannot help.
 - **Alternatives:** Passing the whole response body through (may echo private code); following redirects (key leak risk); mapping 402 to rate limiting (would retry forever).
 - **Consequences:** Providers that signal context overflow in unusual wording may be reported as `invalid_request`; the wording list grows as real providers are met.
+- **Added during the build (2026-11-01):** providers sometimes quote the credentials they were sent inside their own error text (OpenAI-style 401 messages do), and the provider's message is passed on, so the adapter redacts the API key and any `Bearer ...` token from provider text before it goes into an error. A base URL without a host is rejected when the adapter is built. Groq reports an over-large request (too many tokens per minute) as HTTP 413, which maps to `context_too_long`; the right response is to send less context, which is also what that code tells the loop.
 
 ## AD-056: Estimate and flag token usage when a server reports none
 

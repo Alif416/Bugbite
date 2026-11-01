@@ -68,3 +68,9 @@ See `specs/decisions.md` AD-052 to AD-057.
 ## Decision log
 
 Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-052 to AD-057).
+
+## Findings from the build (2026-11-01)
+
+- **Live check not run.** No `GROQ_API_KEY` was available, so nothing was exercised against a real hosted model. All behaviour is verified against a mock transport, a loopback HTTP server, and the shared adapter contract. The behaviour of real servers (their exact error wording, argument formats, and limits) is therefore still unconfirmed.
+- Safety properties were checked by breaking them on purpose: removing key redaction, following redirects, skipping local validation, silently dropping tools for non-native models, not subtracting cached tokens, and not flagging estimated usage each made at least one test fail; the restored code passes.
+- `httpx` percent-encodes odd host names instead of rejecting them; only bad ports and control characters raise. The adapter therefore rejects an empty host itself.
