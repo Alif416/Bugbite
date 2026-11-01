@@ -50,3 +50,7 @@ Give Bugbite a runnable, tested foundation: package layout, config loading, test
 
 - Exact free model entry (Ollama model name) is left as a placeholder until the owner answers open question 4 in the README.
 - Haiku's current model ID and prices must be confirmed by the owner before the first paid run; tests do not depend on them.
+
+## Decision log
+
+Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-001 to AD-010).
