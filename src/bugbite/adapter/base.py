@@ -38,7 +38,7 @@ def validate_request(request: GenerationRequest) -> None:
         raise _invalid("The first message must be from the user.")
     if messages[-1].role != ROLE_USER:
         raise _invalid("The last message must be from the user, so the model has something to answer.")
-    if isinstance(request.temperature, bool) or not (0 <= request.temperature <= 2):
+    if request.temperature is not None and not (0 <= request.temperature <= 2):
         raise _invalid(f"temperature must be between 0 and 2, got {request.temperature!r}.")
     if request.max_output_tokens is not None and request.max_output_tokens <= 0:
         raise _invalid(f"max_output_tokens must be positive, got {request.max_output_tokens!r}.")

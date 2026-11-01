@@ -23,8 +23,9 @@ STOP_END_TURN = "end_turn"
 STOP_TOOL_USE = "tool_use"
 STOP_MAX_TOKENS = "max_tokens"
 STOP_SEQUENCE = "stop_sequence"
+STOP_REFUSAL = "refusal"  # the provider declined to answer (safety policy)
 STOP_OTHER = "other"
-STOP_REASONS = frozenset({STOP_END_TURN, STOP_TOOL_USE, STOP_MAX_TOKENS, STOP_SEQUENCE, STOP_OTHER})
+STOP_REASONS = frozenset({STOP_END_TURN, STOP_TOOL_USE, STOP_MAX_TOKENS, STOP_SEQUENCE, STOP_REFUSAL, STOP_OTHER})
 
 _TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
@@ -160,7 +161,7 @@ class GenerationRequest:
     messages: tuple[Message, ...]
     system: tuple[TextBlock, ...] = ()
     tools: tuple[ToolDefinition, ...] = ()
-    temperature: float = 0.0
+    temperature: float | None = None  # None means the provider's own default
     max_output_tokens: int | None = None
     stop_sequences: tuple[str, ...] = ()
 
@@ -171,8 +172,8 @@ class GenerationRequest:
         object.__setattr__(self, "stop_sequences", _tuple_of(self.stop_sequences, str, "GenerationRequest.stop_sequences"))
         if any(not seq for seq in self.stop_sequences):
             raise ValueError("stop sequences must not be empty")
-        if isinstance(self.temperature, bool) or not isinstance(self.temperature, (int, float)):
-            raise TypeError("GenerationRequest.temperature must be a number")
+        if self.temperature is not None and (isinstance(self.temperature, bool) or not isinstance(self.temperature, (int, float))):
+            raise TypeError("GenerationRequest.temperature must be a number or None")
         if self.max_output_tokens is not None and (
             isinstance(self.max_output_tokens, bool) or not isinstance(self.max_output_tokens, int)
         ):
@@ -203,7 +204,7 @@ class GenerationRequest:
                     for i, b in enumerate(_list(d, "system", "request"))
                 ),
                 tools=tuple(_tool_from_dict(t, f"tools[{i}]") for i, t in enumerate(_list(d, "tools", "request"))),
-                temperature=_number(d, "temperature", "request"),
+                temperature=_optional_number(d, "temperature", "request"),
                 max_output_tokens=_optional_int(d, "max_output_tokens", "request"),
                 stop_sequences=tuple(_str_list(d, "stop_sequences", "request")),
             )
@@ -389,6 +390,13 @@ def _number(d: dict[str, Any], key: str, where: str) -> float:
     value = _field(d, key, where)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise SchemaError(f"{where}: field '{key}' must be a number")
+    return value
+
+
+def _optional_number(d: dict[str, Any], key: str, where: str) -> float | None:
+    value = _field(d, key, where)
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+        raise SchemaError(f"{where}: field '{key}' must be a number or null")
     return value
 
 
