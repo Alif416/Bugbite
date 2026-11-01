@@ -912,3 +912,35 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The pre-steps are a convenience for saving money, so a fault in them must not turn a fixable issue into a failed job or hold it up. The job's time limit starts when the loop starts, so the pre-step needs its own bound, and the caller, who knows both, accounts for it.
 - **Alternatives:** Letting errors propagate (a parsing bug would kill every job with an odd issue); counting pre-step time inside the loop's limit (the loop does not know about it).
 - **Consequences:** Failures are visible only in the report and its notes, so the recorder (P22) must store them.
+
+## AD-113: PostgreSQL through psycopg 3 with plain SQL and versioned migrations
+
+- **Date:** 2026-11-02 · **Phase:** P21 · **Status:** Accepted
+- **Decision:** The trace store talks to PostgreSQL with `psycopg` 3 (a new dependency), uses fixed SQL with query parameters, and keeps its schema in an ordered list of migrations applied by code under an advisory lock. There is no ORM.
+- **Why:** The tech stack names PostgreSQL. The schema is small and stable, and plain SQL is the easiest thing to read, audit for injection and test against a real server. Versioned migrations let the dashboard phases add tables without recreating data, and the advisory lock makes starting several processes at once safe. An ORM would add a large dependency and hide the queries that matter for cost and trace views.
+- **Alternatives:** SQLAlchemy (heavier, hides SQL); SQLite (not the chosen database, different types and locking); asyncpg (async only, the loop is synchronous).
+- **Consequences:** One new dependency. Every query is reviewed by hand; a test scans for SQL built from strings.
+
+## AD-114: One row per model attempt, per tool call and per step; costs come from the ledger
+
+- **Date:** 2026-11-02 · **Phase:** P21 · **Status:** Accepted
+- **Decision:** `model_calls` has one row for every attempt the cost ledger recorded, failed and retried ones included, with tokens, latency and cost taken from the ledger and the reply text from the loop event. `tool_calls` has one row per tool call, `steps` one per step (holding the nudge). The recorder gives each ledger entry a step number by event order: entries added between two model-call events belong to the later event's step, and entries after the last event belong to the next step. The whole conversation is not stored again for each call.
+- **Why:** The ledger is the exact record of what was sent, billed and how long it took (P11), and it is the only place that sees retried and failed attempts (P20). The loop events carry the content. Joining them by order avoids changing the ledger or the loop. Storing only each step's new content keeps a trace linear in size; the full request for any step can be rebuilt from the task and the earlier rows, which is also what replay (P22, P23) needs.
+- **Alternatives:** Storing every request (quadratic growth); adding step numbers to the ledger (couples cost tracking to the loop).
+- **Consequences:** The step derivation assumes one ledger serves one job at a time; a shared ledger would need another way. Written down in the open items.
+
+## AD-115: Events are written as they happen, and a database problem never affects the job
+
+- **Date:** 2026-11-02 · **Phase:** P21 · **Status:** Accepted
+- **Decision:** The recorder writes each event in its own short transaction on an autocommit connection. A job row exists from the start with status `running`. If a write fails the recorder counts it, keeps only the error type, and carries on with the next write; the loop's observer protection (AD-094) covers anything that still escapes. A job whose process dies stays `running` until aborted.
+- **Why:** The dashboard shows live progress (FR8.4), and a crashed run must leave what it did behind. A trace is a record, not part of the work: losing a database must not cost a paid run or change its result. Keeping only the error type avoids leaking the connection string or row content through exception text.
+- **Alternatives:** One transaction per job (invisible until the end, lost on a crash); letting database errors stop the job (turns an outage into failed jobs).
+- **Consequences:** After an outage a trace can have gaps; `recorder.errors` says so. A sweeper for stale jobs is left for later.
+
+## AD-116: Full content for every job, with the job's sensitivity stored; secrets scrubbed before storage
+
+- **Date:** 2026-11-02 · **Phase:** P21 · **Status:** Accepted (owner agreed)
+- **Decision:** Prompts, replies, file contents and tool output are stored for all jobs, private ones included. Each job stores its sensitivity (public, sandbox, private). The recorder applies a caller-supplied `scrub` function to every string, which the runner will use to remove the model key.
+- **Why:** The database is local and the owner's. Failure analysis, replay and debugging need the real content, and private-job metadata alone would make private runs impossible to study. Recording the sensitivity keeps the option to hide or refuse private content in the dashboard and in any export later, which is where the P13 open item about private code in traces gets closed. The key must never reach the database, even if a model echoes it.
+- **Alternatives:** Metadata only for private jobs (safer if the database is shared, but loses most of the value); no scrubbing hook (relies on every caller remembering).
+- **Consequences:** Anything that exposes traces (dashboard, export, API) must check the sensitivity. Tests use only their own throwaway database, never the owner's other databases.
