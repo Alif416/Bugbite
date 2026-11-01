@@ -11,6 +11,8 @@ models:
     price_per_output_token: 0.000005   # confirm
     per_issue_cap_usd: 0.10
     allow_private_code: false
+    api_key_env: ANTHROPIC_API_KEY
+    max_output_tokens: 4096
 
   local-free:
     # Placeholder until the owner picks a free model (README open question 4).
@@ -23,3 +25,4 @@ models:
     price_per_output_token: 0
     per_issue_cap_usd: 0
     allow_private_code: true
+    max_output_tokens: 4096   # no api_key_env: local models need no key

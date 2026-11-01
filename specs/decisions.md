@@ -375,3 +375,65 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Normal exits and Ctrl-C are the common ways a job ends early, and cleaning promptly is better than waiting for the lifetime. A library must not take over process-wide signal behaviour just by being imported, because that can clash with web servers, test runners, and other libraries; so installing handlers is a deliberate call by CLI and API entry points. The owner chose this option.
 - **Alternatives:** Install handlers automatically on import (surprising global side effect); no exit hooks (rely on auto-remove and the sweeper, so a Ctrl-C leaves a container for up to half an hour).
 - **Consequences:** `SIGKILL` and power loss cannot be caught; they are covered by auto-remove at expiry and by the next sweep. Entry points added in later phases must call `install_signal_cleanup()`.
+
+---
+
+## AD-045: The model interface is synchronous
+
+- **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
+- **Decision:** `adapter.generate(request)` is an ordinary blocking call that returns a response.
+- **Why:** The agent loop is a step-by-step sequence (think, call a tool, read the result), the sandbox API is synchronous, and replay must be deterministic, so blocking calls keep every layer and every test simple. Parallelism is planned as worker processes fed by a queue (P50), not many calls in one event loop. The owner chose this option.
+- **Alternatives:** An async interface (suits FastAPI and many concurrent calls in one process, but spreads async through the loop, the synchronous sandbox calls, and every test).
+- **Consequences:** The API server must run jobs in workers or threads rather than awaiting them. An async wrapper can be added later without changing adapters.
+
+## AD-046: Bugbite's own neutral message format with content blocks
+
+- **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
+- **Decision:** Requests and responses use immutable dataclasses: messages made of typed content blocks (text, tool call, tool result), a separate system prompt, and a cache marker on text blocks. Each adapter translates to and from its provider's format. Requests and responses convert to and from JSON exactly, with a `schema_version`.
+- **Why:** Recordings for replay (FR10, FR14.7) must not depend on any provider. A neutral format means one recording can be read, compared, and replayed without any provider SDK, and swapping a model never changes what is stored. Blocks make tool results and cache markers first-class, which the OpenAI-style flat dicts handle awkwardly and the Anthropic shape ties to one vendor. The owner chose this option.
+- **Alternatives:** Anthropic-style blocks as the internal format (every other adapter translates from Claude's shape, recordings tied to one provider); OpenAI-style dicts (cache markers and tool results fit poorly, Claude adapter translates from it).
+- **Consequences:** Every adapter owns a translation layer that needs its own tests. The schema version lets recordings be migrated when the format changes.
+
+## AD-046 note: token counts in `Usage`
+
+- **Added during the build (2026-11-01):** `Usage.input_tokens` counts prompt tokens charged at the normal input rate and excludes tokens read from or written to the provider's cache; `cache_read_tokens` and `cache_write_tokens` are separate. `prompt_tokens` is the sum of the three prompt counts and `total` adds the output tokens. Adapters whose provider reports cached tokens inside its prompt count (as OpenAI-style APIs do) must subtract them, so that cost in P11 is never counted twice.
+
+## AD-047: Whole responses only; no streaming
+
+- **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
+- **Decision:** One request returns one complete response with text, tool calls, usage, and stop reason. There is no token streaming.
+- **Why:** Recording, replay, retries, and cost accounting are all simpler and exact with whole responses. The dashboard's live progress (FR8.4) comes from agent-loop events such as each model call and tool call, not from tokens. The owner chose this option.
+- **Alternatives:** Optional streaming (nicer chat-like view, but doubles the adapter surface and complicates recording and retries).
+- **Consequences:** Long generations show nothing until they finish. Streaming can be added later as a separate method without breaking callers.
+
+## AD-048: Parsed tool arguments with an error field, and strict conversation validation before any call
+
+- **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
+- **Decision:** A tool call carries its arguments as a parsed dictionary plus an optional `error` string. If a model emits arguments that cannot be parsed, the call is still returned, with empty arguments and the error set, so the agent can report it back instead of crashing. A shared `validate_request` runs before any network call and rejects malformed conversations: empty messages, a first or last message that is not from the user, non-alternating roles, tool calls or results in the wrong role, tool results with no matching call, unanswered tool calls, duplicate call ids or tool names, an out-of-range temperature, and a non-positive output cap.
+- **Why:** Weaker and free models often produce broken tool JSON (README risk and FR14.4), and the loop must treat that as a recoverable step, not an exception. Providers reject malformed conversations with an error after the request is already sent, and paid providers can bill for it; checking locally first costs nothing and gives one clear message for every provider (mission principle 6: budget is a hard limit).
+- **Alternatives:** Raw argument strings (every caller parses and handles errors); letting each provider report invalid conversations (different messages, possible cost).
+- **Consequences:** The validator encodes our conversation rules, so it must be updated if the loop ever needs something the rules forbid (for example consecutive user messages).
+
+## AD-049: One normalised `AdapterError`; adapters do not retry
+
+- **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
+- **Decision:** Adapters raise `AdapterError` with a stable code (`rate_limited`, `auth_failed`, `context_too_long`, `invalid_request`, `server_error`, `network_error`, `timeout`, `bad_response`), an optional `retry_after_s`, and an optional `status_code`. Adapters raise immediately and never retry or sleep.
+- **Why:** The loop, the queue, and the failure classifier need to react to the cause (back off, shrink the context, give up) without knowing which provider failed. Retry, backoff, and resume (FR14.5) are policy that should be designed once for all providers in the batch phases, not duplicated in each adapter. This follows the same split as AD-020 for GitHub errors.
+- **Alternatives:** Provider-specific exceptions (callers must know every provider); retries inside each adapter (duplicated, hard to test, hides cost).
+- **Consequences:** A transient failure ends the call until retry policy exists. Error messages must not contain API keys or request bodies.
+
+## AD-050: Model config additions; the caller passes the key; providers are validated
+
+- **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
+- **Decision:** `ModelConfig` gains `api_key_env` (the name of the environment variable that holds the key, or none for local models) and `max_output_tokens` (default 4096), plus a read-only `integration` (`native` or `text_action`). Loading rejects an unknown provider, a non-http base URL, non-positive sizes, an output cap not smaller than the context window, and a malformed variable name. `create_adapter(model_config, api_key=...)` takes the key from the caller; adapters never read the environment.
+- **Why:** FR14.3 and FR13.8 need the integration method and the key source to be configuration, not code. Keeping environment reads at the edges follows the rule set for the GitHub client (AD-017) and mission principle 4, and stops tests from picking up real keys. Validating at load time follows AD-006: a wrong provider name should fail when the config loads, not in the middle of a paid run.
+- **Alternatives:** Adapters reading the variable themselves (hidden environment dependency); no provider validation (typos fail late).
+- **Consequences:** Entry points must read the variable named by `api_key_env` and pass the key in. Adding a provider means adding it to the supported list and registering an adapter.
+
+## AD-051: Text-action fallback as a wrapper; a scripted adapter and contract tests
+
+- **Date:** 2026-11-01 · **Phase:** P8 · **Status:** Accepted
+- **Decision:** The text-action fallback (P12) will be a wrapper adapter that exposes the same interface over any other adapter, so the agent sees no difference. This phase ships `ScriptedAdapter` (canned responses and errors, records requests, validates like a real adapter) and a reusable adapter contract test class that every real adapter must pass.
+- **Why:** One interface for all models (FR14.1) means a model without native tool calling should not need special handling in the loop; a wrapper keeps that logic in one place and testable. A scripted adapter lets the agent loop, recorder, and replayer be built and tested with no provider and no cost (mission principle 6). A shared contract test makes "works like every other adapter" checkable instead of assumed.
+- **Alternatives:** A flag inside each adapter (duplicated logic); testing the loop only against live models (costly, non-deterministic).
+- **Consequences:** The wrapper (P12) must produce the same response shape, including normalised stop reasons and usage. The contract tests grow as real adapters reveal differences.

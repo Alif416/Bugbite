@@ -1,10 +1,11 @@
 """Errors raised for problems outside the program's own bugs.
 
-Three families, because callers present them differently:
+Four families, because callers present them differently:
 
 - `InputError`: the user can fix it (bad URL, repo not found, not Python).
 - `GitHubAPIError`: the provider or network failed (rate limit, timeout).
 - `SandboxError`: Docker or the sandbox container failed.
+- `AdapterError`: a model provider failed or rejected a request.
 
 Each carries a stable `code` so the CLI, API, and dashboard can map it to
 their own output without parsing message text.
@@ -73,6 +74,29 @@ ALL_SANDBOX_CODES = frozenset(
     }
 )
 
+# AdapterError codes
+RATE_LIMITED_MODEL = "rate_limited"
+AUTH_FAILED_MODEL = "auth_failed"
+CONTEXT_TOO_LONG = "context_too_long"
+INVALID_REQUEST = "invalid_request"
+SERVER_ERROR_MODEL = "server_error"
+NETWORK_ERROR_MODEL = "network_error"
+TIMEOUT_MODEL = "timeout"
+BAD_RESPONSE = "bad_response"
+
+ALL_ADAPTER_CODES = frozenset(
+    {
+        RATE_LIMITED_MODEL,
+        AUTH_FAILED_MODEL,
+        CONTEXT_TOO_LONG,
+        INVALID_REQUEST,
+        SERVER_ERROR_MODEL,
+        NETWORK_ERROR_MODEL,
+        TIMEOUT_MODEL,
+        BAD_RESPONSE,
+    }
+)
+
 
 class InputError(Exception):
     """User input was rejected. `code` is stable; `message` is user-facing."""
@@ -111,3 +135,32 @@ class SandboxError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+class AdapterError(Exception):
+    """A model provider failed or rejected a request.
+
+    `code` is stable. `retry_after_s` is the provider's suggested wait, if it
+    gave one; `status_code` is the HTTP status, if there was one. Messages must
+    never contain API keys or request bodies.
+    """
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retry_after_s: float | None = None,
+        status_code: int | None = None,
+    ) -> None:
+        if code not in ALL_ADAPTER_CODES:
+            raise ValueError(f"unknown AdapterError code: {code!r}")
+        if not message:
+            raise ValueError("AdapterError needs a non-empty message")
+        if retry_after_s is not None and retry_after_s < 0:
+            raise ValueError("retry_after_s must not be negative")
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.retry_after_s = retry_after_s
+        self.status_code = status_code

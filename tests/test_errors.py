@@ -1,7 +1,16 @@
 import pytest
 
 from bugbite import errors
-from bugbite.errors import ALL_API_CODES, ALL_CODES, ALL_SANDBOX_CODES, GitHubAPIError, InputError, SandboxError
+from bugbite.errors import (
+    ALL_ADAPTER_CODES,
+    ALL_API_CODES,
+    ALL_CODES,
+    ALL_SANDBOX_CODES,
+    AdapterError,
+    GitHubAPIError,
+    InputError,
+    SandboxError,
+)
 
 
 def test_codes_are_stable():
@@ -92,3 +101,39 @@ def test_sandbox_error_validates_code_and_message():
         SandboxError("start_failed", "")
     with pytest.raises(ValueError):
         SandboxError("rate_limited", "x")  # a GitHubAPIError code
+
+
+def test_adapter_codes_are_stable():
+    assert ALL_ADAPTER_CODES == {
+        "rate_limited",
+        "auth_failed",
+        "context_too_long",
+        "invalid_request",
+        "server_error",
+        "network_error",
+        "timeout",
+        "bad_response",
+    }
+
+
+@pytest.mark.parametrize("code", sorted(ALL_ADAPTER_CODES))
+def test_adapter_error_carries_code_and_message(code):
+    err = AdapterError(code, "the provider said no")
+    assert (err.code, err.message, str(err)) == (code, "the provider said no", "the provider said no")
+    assert err.retry_after_s is None and err.status_code is None
+
+
+def test_adapter_error_carries_retry_and_status():
+    err = AdapterError("rate_limited", "slow down", retry_after_s=2.5, status_code=429)
+    assert err.retry_after_s == 2.5 and err.status_code == 429
+
+
+def test_adapter_error_validates_arguments():
+    with pytest.raises(ValueError):
+        AdapterError("made_up", "x")
+    with pytest.raises(ValueError):
+        AdapterError("timeout", "")
+    with pytest.raises(ValueError):
+        AdapterError("timeout", "x", retry_after_s=-1)
+    with pytest.raises(ValueError):
+        AdapterError("start_failed", "x")  # a SandboxError code, not an adapter one

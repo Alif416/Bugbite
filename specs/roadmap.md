@@ -16,7 +16,7 @@ FR numbers refer to README.md section 5.
 
 ## Model adapter
 
-- [ ] **P8. Adapter interface + model config file** (FR14.1, FR14.3).
+- [x] **P8. Adapter interface + model config file** (FR14.1, FR14.3).
 - [ ] **P9. OpenAI-compatible adapter** — working against a free model (Ollama or free tier) (FR14.2).
 - [ ] **P10. Claude adapter** — Haiku, prompt caching on (FR14.2).
 - [ ] **P11. Usage and cost tracking per call** — free models log cost 0 (FR14.6).

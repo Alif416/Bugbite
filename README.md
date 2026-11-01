@@ -433,3 +433,13 @@ A crashed or killed job must not leave containers behind. Three layers work toge
 `kill -9` and power loss cannot be caught; those are covered by layers 1 and 2. To check by hand: `docker ps -a --filter label=bugbite.sandbox=1` and `docker volume ls --filter label=bugbite.sandbox=1`.
 
 Workspace volumes created before this cleanup existed carry no label, so Bugbite cannot tell them from other programs' volumes and leaves them alone. List them with `docker volume ls -f dangling=true` and remove the ones that belong to Bugbite with `docker volume rm <name>`.
+
+### Model adapter interface
+
+All models are used through `bugbite.adapter`. A `GenerationRequest` (system prompt, messages made of text, tool-call and tool-result blocks, tool definitions, temperature) goes to `adapter.generate(request)`, which returns a `GenerationResponse` (text and tool calls, token usage, a normalised stop reason). The types are provider-neutral, immutable, and convert to JSON and back exactly, so recorded runs do not depend on any provider. Calls are synchronous and return whole responses.
+
+- Every request is checked locally before anything is sent (alternating roles, every tool call answered by a tool result, unique ids and names, sane temperature), so a malformed conversation cannot cost money.
+- Provider failures are raised as `AdapterError` with a stable code (`rate_limited`, `auth_failed`, `context_too_long`, `invalid_request`, `server_error`, `network_error`, `timeout`, `bad_response`). Adapters do not retry.
+- Adapters are built with `create_adapter(model_config, api_key=...)`. The caller reads the environment variable named by `api_key_env` and passes the key in; local models need no key.
+- `config/models.yaml` fields: `provider` (`claude` or `openai_compatible`), `base_url`, `model_name`, `context_window`, `max_output_tokens`, `native_tool_calling` (reported as the integration method, `native` or `text_action`), prices per token, `per_issue_cap_usd`, `allow_private_code`, `api_key_env`.
+- `bugbite.adapter.testing.ScriptedAdapter` returns canned responses, so the agent loop and replay can be built and tested without a provider. `tests/adapter/adapter_contract.py` is the contract every real adapter must pass.
