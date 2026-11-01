@@ -7,7 +7,7 @@ FR numbers refer to README.md section 5.
 ## Foundation
 
 - [x] **P1. Project skeleton** — repo layout, module folders, pytest runs, config loading, CI stub.
-- [ ] **P2. Input validation** — parse issue URL + repo URL offline; reject non-GitHub and malformed input with clear messages (FR1.1). Python-only check moved to P3 (AD-011).
+- [x] **P2. Input validation** — parse issue URL + repo URL offline; reject non-GitHub and malformed input with clear messages (FR1.1). Python-only check moved to P3 (AD-011).
 - [ ] **P3. Issue fetch** — title, body, labels, comments via GitHub API; public/token access check; reject non-Python repos (FR1.2, FR1.3, FR1.4).
 - [ ] **P4. Sandbox: run a command** — start a limited Docker container, run one command, clean up (FR2.1, FR2.3, FR2.4, FR2.5).
 - [ ] **P5. Sandbox: clone + install** — clone repo, auto-install from requirements/setup/pyproject (FR2.2).
