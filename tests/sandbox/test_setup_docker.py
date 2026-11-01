@@ -295,8 +295,8 @@ def test_failed_dependency_group_is_a_warning_not_a_failure(make_sandbox):
     )
     commit_files(sb, {"pyproject.toml": pyproject, "demo.py": "x = 1\n"})
     result = setup_workspace(sb, url())
-    assert result.ok
-    assert any("dependency-group:tests" in w for w in result.warnings)
+    assert result.ok, [(s.name, s.output_tail[-300:]) for s in result.steps if not s.ok]
+    assert any("dependency-group:tests" in w for w in result.warnings), result.warnings
 
 
 @pytest.mark.internet
@@ -330,8 +330,8 @@ def test_repo_with_nothing_to_install_still_gets_pytest(make_sandbox):
     sb = make_sandbox(network=True)
     commit_files(sb, {"app.py": "print('hi')\n"})
     result = setup_workspace(sb, url())
-    assert result.ok
-    assert any("No packaging file" in w for w in result.warnings)
+    assert result.ok, [(s.name, s.output_tail[-300:]) for s in result.steps if not s.ok]
+    assert any("No packaging file" in w for w in result.warnings), result.warnings
     assert pip_show(sb, "pytest").exit_code == 0
 
 
@@ -354,8 +354,8 @@ def test_optional_test_requirements_failure_is_a_warning(make_sandbox):
         {"requirements.txt": "iniconfig==2.0.0\n", "requirements-dev.txt": "definitely-not-a-real-package-xyz==1.0\n"},
     )
     result = setup_workspace(sb, url())
-    assert result.ok
-    assert any("requirements-dev.txt" in w for w in result.warnings)
+    assert result.ok, [(s.name, s.output_tail[-300:]) for s in result.steps if not s.ok]
+    assert any("requirements-dev.txt" in w for w in result.warnings), result.warnings
 
 
 @pytest.mark.internet

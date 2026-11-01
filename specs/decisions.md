@@ -333,3 +333,45 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** README FR6.5 requires the pass check to be done by the verifier, not by the agent. Trying to make an in-container run tamper-proof would add complexity without a real guarantee, because the code under test and the report writer share one process. Stating the limit plainly keeps later claims honest (mission principle 8).
 - **Alternatives:** Hashing or signing the report from inside the container (the forger has the same access); running the plugin on the host (not possible, tests run in the container).
 - **Consequences:** Until P33, a result is only as trustworthy as the repo code and the agent's edits. Test results from agent runs must not be reported as final verification.
+
+---
+
+## AD-040: Docker removes sandboxes itself when they exit (`auto_remove`)
+
+- **Date:** 2026-11-01 · **Phase:** P7 · **Status:** Accepted
+- **Decision:** Create every sandbox container with `auto_remove=True` (like `docker run --rm`). Docker then deletes the container, and its anonymous workspace volume, as soon as it exits: at the end of its `max_lifetime_s`, when it is killed, or when its keep-alive process dies. `run()` turns a "no such container" error into a clear `sandbox_closed` error, and `start()` treats a container that vanished right after starting as "exited immediately".
+- **Why:** This is the strongest layer because it works even when Bugbite itself is dead or never runs again; no code of ours has to be alive to clean up (README reliability rule: a crashed job must not leave orphan containers). Before P7 an expired container stayed behind stopped, holding its workspace volume (hundreds of MB for real repos). The owner chose the three-layer approach.
+- **Alternatives:** A sweeper only (nothing is cleaned until some later Bugbite run sweeps); leaving exited containers for inspection (useful for debugging, but they pile up and hold disk).
+- **Consequences:** The output of a container that exits immediately (for example an image missing `sleep`) can no longer be read for the error message, because Docker has already removed it; the message says so. A running container is still only stopped by its lifetime, a kill, or our cleanup, so layers two and three cover the time before expiry.
+
+## AD-041: Ownership labels and the orphan rule
+
+- **Date:** 2026-11-01 · **Phase:** P7 · **Status:** Accepted
+- **Decision:** Label every container and workspace volume with the owner's host name, process id, and a process start token, plus a creation time and the container's `max_lifetime`. A container is an orphan if its owner is on this host and the process is gone (or its start token differs), or if it is older than `max_lifetime + 60 s` whatever the owner. Owners on other hosts are judged by age only. Containers without labels (made before P7) are judged by Docker's creation time and the default lifetime. The decision is a pure function so every case is unit-tested.
+- **Why:** The sweeper must be safe while other worker processes (P50) hold live sandboxes: a live owner within its lifetime must never be touched. A process id alone can be reused by the operating system, so a start token (from `ps -o lstart=`, available on macOS and Linux) guards against mistaking a new process for the dead owner. Age is the fallback for owners we cannot inspect. The owner chose this rule over age only, which would leave a crashed job's container for at least half an hour.
+- **Alternatives:** Age only (slow to clean, no protection against long jobs with raised lifetimes); heartbeat files or a lock service (more moving parts for a single-machine tool); pidfiles (stale after crashes).
+- **Consequences:** If `ps` is unavailable the start token is empty and only the process id is compared. A shared Docker host used from several machines needs a better owner identity; recorded as an open item.
+
+## AD-042: Sweep before each sandbox start, and on demand; never block a start
+
+- **Date:** 2026-11-01 · **Phase:** P7 · **Status:** Accepted
+- **Decision:** `Sandbox.start()` runs `sweep_orphans()` first (one label-filtered Docker list call plus removals). `sweep_orphans()` is also public for the future `bugbite cleanup` command and the job manager. A failure in the sweeper is logged as a warning and the start continues.
+- **Why:** Crashes then heal themselves the next time anything starts, without a human or a scheduler. Cleanup is housekeeping, so it must never be the reason a job cannot start. The owner chose automatic plus on-demand.
+- **Alternatives:** Explicit calls only (nothing cleans unless every entry point remembers); a background thread or cron (more machinery, and it needs its own supervision).
+- **Consequences:** Each start pays a small extra Docker call. The sweeper only touches objects carrying the Bugbite label, so unrelated containers and volumes are safe.
+
+## AD-043: Label volumes at creation; remove by label and age, never by blanket prune
+
+- **Date:** 2026-11-01 · **Phase:** P7 · **Status:** Accepted
+- **Decision:** The anonymous workspace volume gets the Bugbite labels when it is created. The sweeper lists volumes with the Bugbite label, skips those younger than the grace period, and tries to remove each; Docker refuses volumes still in use, which are skipped. No `docker volume prune` or similar blanket command is used.
+- **Why:** A blanket prune would delete any unused volume on the machine, including other projects' data. Labels make "ours" provable, and the age check avoids racing a container that is being created. Trying to remove a volume and letting Docker refuse in-use ones is safer than guessing usage. This completes the AD-033 note to prune leftover workspace volumes.
+- **Alternatives:** `volume prune` filtered by label (works, but races container creation and depends on Docker version behaviour for anonymous volumes); naming volumes and tracking them in a file (state to keep consistent).
+- **Consequences:** Workspace volumes created before P7 carry no label and cannot be recognised as Bugbite's; the README tells the user how to list and remove dangling volumes by hand once.
+
+## AD-044: Close live sandboxes on exit; signal handling is opt-in
+
+- **Date:** 2026-11-01 · **Phase:** P7 · **Status:** Accepted
+- **Decision:** Keep a registry of live sandboxes (weak references, with a lock). An `atexit` hook, registered once, closes them all. `install_signal_cleanup()` is an explicit function for entry points: it must run in the main thread, skips signals that are currently ignored, closes all sandboxes on `SIGTERM` or `SIGINT`, then restores the previous handler and lets it run, so `SIGINT` still raises `KeyboardInterrupt` and `SIGTERM` still ends the process. It returns a function that removes the handlers.
+- **Why:** Normal exits and Ctrl-C are the common ways a job ends early, and cleaning promptly is better than waiting for the lifetime. A library must not take over process-wide signal behaviour just by being imported, because that can clash with web servers, test runners, and other libraries; so installing handlers is a deliberate call by CLI and API entry points. The owner chose this option.
+- **Alternatives:** Install handlers automatically on import (surprising global side effect); no exit hooks (rely on auto-remove and the sweeper, so a Ctrl-C leaves a container for up to half an hour).
+- **Consequences:** `SIGKILL` and power loss cannot be caught; they are covered by auto-remove at expiry and by the next sweep. Entry points added in later phases must call `install_signal_cleanup()`.
