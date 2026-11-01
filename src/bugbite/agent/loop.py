@@ -32,12 +32,14 @@ from bugbite.adapter.types import (
 from bugbite.errors import AdapterError, PrivacyError
 
 from .limits import Limits
+from .loopguard import DEFAULT_LOOP_POLICY, NO_SIGNAL, NUDGE, RESET, STOP, LoopDetector, LoopPolicy, Signal, stronger
 from .prompt import SYSTEM_PROMPT
 from .tools import ToolOutput
 from .types import (
     COST_CAP,
     EMPTY_REPLY,
     FINISHED,
+    LOOP_DETECTED,
     MAX_STEPS,
     MODEL_ERROR,
     PRIVACY_BLOCKED,
@@ -56,6 +58,7 @@ from .types import (
 )
 
 log = logging.getLogger(__name__)
+NOTE_PREFIX = "[Bugbite note] "
 NOT_RUN_TIME = "Not run: the time limit for this job was reached."
 
 
@@ -98,6 +101,7 @@ def run_agent(
     system_prompt: str = SYSTEM_PROMPT,
     observer: Observer | None = None,
     max_output_tokens: int | None = None,
+    loop_policy: LoopPolicy | None = DEFAULT_LOOP_POLICY,
     clock: Callable[[], float] = time.monotonic,
 ) -> AgentResult:
     """Run the loop. `tools` needs `definitions()` and `execute(name, arguments, time_limit_s=...)`.
@@ -114,6 +118,8 @@ def run_agent(
         raise ValueError("task must be a non-empty string")
     if not isinstance(system_prompt, str) or not system_prompt.strip():
         raise ValueError("system_prompt must be a non-empty string")
+    if loop_policy is not None and not isinstance(loop_policy, LoopPolicy):
+        raise ValueError("loop_policy must be a LoopPolicy or None")
     cost_cap: Decimal | None = limits.max_cost_usd
     if cost_cap is not None:
         if ledger is None:
@@ -134,6 +140,8 @@ def run_agent(
     def spent() -> Decimal | None:
         return None if ledger is None else ledger.total_usd - baseline
 
+    detector = LoopDetector(loop_policy) if loop_policy is not None else None
+    nudges = 0
     observer_errors = 0
 
     def notify(event: Any) -> None:
@@ -165,6 +173,7 @@ def run_agent(
             cost_usd=spent(),
             elapsed_s=elapsed(),
             limit_detail=detail,
+            nudges=nudges,
         )
         notify(FinishEvent(result))
         return result
@@ -234,6 +243,7 @@ def run_agent(
             return finish(MAX_STEPS, detail=f"Stopped: the limit of {limits.max_steps} steps was reached.")
 
         runs: list[ToolRun] = []
+        pending: list[Signal] = []
         for call in calls:
             left = time_left()
             if left is not None and left <= 0:
@@ -242,10 +252,28 @@ def run_agent(
                 run = _run_call(tools, call, left)
             runs.append(run)
             notify(ToolCallEvent(index, run))
-        steps.append(Step(index, response, tuple(runs)))
-        messages.append(
-            Message.tool_results(*(ToolResultBlock(r.call.id, r.output.text, r.output.is_error) for r in runs))
-        )
+            if detector is not None:
+                signal = detector.observe(run)
+                if signal.kind == RESET:  # the repository changed: earlier signals in this step no longer apply
+                    pending.clear()
+                elif signal.kind != "ok":
+                    pending.append(signal)
+        stop = next((s for s in pending if s.kind == STOP), NO_SIGNAL)
+        notes = [] if stop.kind == STOP else [s.note for s in pending if s.kind == NUDGE]
+        blocks = [ToolResultBlock(r.call.id, r.output.text, r.output.is_error) for r in runs]
+        nudge = None
+        if notes:
+            nudge = "\n".join(notes)
+            last = blocks[-1]
+            blocks[-1] = ToolResultBlock(last.tool_call_id, last.content + "\n\n" + NOTE_PREFIX + nudge, last.is_error)
+            nudges += 1
+        steps.append(Step(index, response, tuple(runs), nudge))
+        messages.append(Message.tool_results(*blocks))
+        if stop.kind == STOP:
+            left = time_left()
+            if left is not None and left <= 0:
+                return finish(TIME_CAP, detail=time_detail())
+            return finish(LOOP_DETECTED, detail=stop.detail)
 
     left = time_left()
     if left is not None and left <= 0:  # the last step ended with the clock out; time wins over steps
