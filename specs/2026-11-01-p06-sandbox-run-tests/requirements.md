@@ -65,3 +65,9 @@ See `specs/decisions.md` AD-036 to AD-039.
 ## Decision log
 
 Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-036 to AD-039).
+
+## Findings from manual runs (2026-11-01)
+
+- `pallets/itsdangerous` (flit, dependency groups): setup ok, 297 tests pass.
+- `psf/requests` (setup.py, `requirements-dev.txt`, dependency group `test`): setup ok in 26 s; 615 passed, 4 failed, 15 skipped, 1 xfailed in 78 s. The 4 failures are timeout tests that connect to `10.255.255.1`: they need a network, which is cut, so they would also fail in a baseline run.
+- `kjd/idna` (flit): setup ok, but the run is `collection_error` because `hypothesis` is declared only in an `all` extra and in CI lock files (`.github/requirements/`), which the install heuristic does not read. The failure is reported correctly and names the missing module. Left as a known limitation of the heuristic (AD-032, AD-035).

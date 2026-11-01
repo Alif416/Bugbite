@@ -407,3 +407,17 @@ cp .env.example .env         # then fill in secrets (never commit .env)
 To run the opt-in live GitHub test: `BUGBITE_LIVE_TESTS=1 uv run pytest tests/github/test_live.py`.
 
 Config lives in `config/`: `app.yaml` (limits, default model) and `models.yaml` (one entry per model). Secrets are read only from environment variables.
+
+### How test results are captured
+
+Tests run inside the sandbox with the repo's own pytest configuration. A small Bugbite plugin (`src/bugbite/sandbox/plugin/bugbite_report.py`) is copied into the container for every run, outside the repo, and records the exact ID and outcome of each test. `run_tests` returns one status per run:
+
+| Status | Meaning |
+|---|---|
+| `ok` | pytest ran; tests passed or failed (see the per-test outcomes) |
+| `no_tests` | collection worked and found nothing (repo is rejected by `ensure_has_tests`) |
+| `collection_error` | import errors during collection, or pytest could not start (for example `addopts` names a plugin that is not installed); an environment problem |
+| `timeout` | the run hit `test_timeout_s`; results for tests that finished are kept |
+| `crashed` | internal error, plugin failed to load, report missing, or an unexpected exit code |
+
+Per-test outcomes are `passed`, `failed`, `error`, `skipped`, `xfailed` and `xpassed`. Tests run with the network cut, so tests that need the internet fail; later baseline comparison treats tests that fail both before and after a fix as pre-existing. A test result is only as trustworthy as the code running inside pytest: the verifier (P33) re-checks in a clean container.
