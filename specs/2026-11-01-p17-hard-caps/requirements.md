@@ -66,3 +66,14 @@ See `specs/decisions.md` AD-097 to AD-100.
 - The worst case prices every prompt token at the dearest rate and allows the whole output limit, so jobs stop earlier than a "typical" estimate would. With the default Haiku numbers this still leaves many steps within $0.10, but that is calculated, not measured.
 - A model call in flight cannot be stopped, so a job can run over the time cap by up to one model call (bounded by the adapter's timeout) or one read-only tool call (30 s).
 - The caps are per job; one job cannot see another's spend. Batches and the 5 USD project budget are P46.
+
+## Findings from the build
+
+- `TextActionAdapter` got a public `inner` property so the ledger can be found by walking the chain (it was the only wrapper without one).
+- The pre-check and the post-check are both needed: tests show a reply that costs far more than estimated is caught after the call (its tools are not run), and a final answer over the cap is kept with a note.
+- The time gate after a model call can find the clock already out: the tool calls are then answered "not run" and the run ends at the top of the loop (or after the last step, where time wins over steps). Every call in the history has exactly one result in all these cases.
+- A hand check of one Haiku step with a 20,000-token prompt gives a worst case of $0.005173 (the code agrees), against a typical $0.00225, so about 44 such steps fit in $0.10 and the 30-step limit comes first. Over 80,000 prompt tokens the 1.25 margin pushes the estimate into the long-prompt price tier, which makes the worst case jump; long conversations are therefore stopped early. Not measured against real usage.
+- The Docker test showed the clamp working with a real sleeping command: a 6 s cap and `sleep 60` ended in about 6 s.
+- Mutation check: 18 breakages (cost check removed, boundary, margin, repair doubling, baseline spend, post-call check, tool time check, skipped calls unanswered, both tool clamps, ledger checks, check order, config helper, bool steps, time not passed to tools) are all caught.
+- Tests need distinct tool-call ids per scripted reply; a Docker test that reused `call_1` ended as `model_error` because the request validator rejects duplicate ids.
+- Running the whole suite as a background shell job made two or three signal-related tests fail (`test_nothing_is_installed_on_import` among them), because a background job starts with some signals ignored. The same tests pass in a normal foreground run, so the final runs for this phase were done in the foreground: 1923 passed and 122 skipped with Docker unreachable, 2039 passed and 6 skipped with Docker running, no leftover containers or volumes. Run the suite in the foreground.
