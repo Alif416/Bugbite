@@ -16,7 +16,7 @@ LIST_LIMIT = 5000
 TIMEOUT_S = 30
 
 _SCRIPT = """
-import json, os, sys
+import json, os, stat, sys
 root = os.path.realpath(sys.argv[1]); rel = sys.argv[2]; mode = sys.argv[3]; limit = int(sys.argv[4])
 def out(**kw):
     print(json.dumps(kw))
@@ -29,7 +29,7 @@ else:
     if ".git" in r.split(os.sep):
         out(kind="git")
     elif not os.path.exists(target):
-        out(kind="missing")
+        out(kind="missing", rel=r)
     elif os.path.isdir(target):
         if mode == "list":
             names = []
@@ -45,7 +45,7 @@ else:
         else:
             out(kind="dir", rel=r)
     elif os.path.isfile(target):
-        out(kind="file", rel=r, size=os.path.getsize(target))
+        out(kind="file", rel=r, size=os.path.getsize(target), mode=stat.S_IMODE(os.stat(target).st_mode))
     else:
         out(kind="other", rel=r)
 """
@@ -56,6 +56,7 @@ class Resolved:
     kind: str  # file, dir, missing, outside, git, other
     rel: str = ""
     size: int = 0
+    mode: int = 0o644
     entries: tuple[tuple[str, str], ...] = ()
 
     @property
@@ -74,6 +75,7 @@ def resolve(sandbox: Any, relative: str, mode: str = "stat") -> Resolved:
             kind=str(data["kind"]),
             rel=str(data.get("rel", "")),
             size=int(data.get("size", 0)),
+            mode=int(data.get("mode", 0o644)),
             entries=tuple((str(n), str(k)) for n, k in data.get("entries", ())),
         )
     except (ValueError, KeyError, IndexError, TypeError):
