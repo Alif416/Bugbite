@@ -16,7 +16,7 @@ Branch: `2026-11-01-p17-hard-caps`. See `requirements.md` for scope and decision
 ## 3. The loop (`src/bugbite/agent/loop.py`)
 
 1. New signature `run_agent(adapter, tools, task, *, limits, ledger=None, system_prompt=..., observer=None, max_output_tokens=None, clock=time.monotonic)`. `limits` must be a `Limits`.
-2. Up front: if `limits.max_cost_usd` is set, `ledger` must be given and found in the adapter chain (walking `.inner`); else `ValueError`.
+2. Up front: if `limits.max_cost_usd` is set, `ledger` must be given and found in the adapter chain (walking `.inner`; `TextActionAdapter` gets a public read-only `inner` property for this, as the guard and metering wrappers already have); else `ValueError`.
 3. Per step, in this order: time check, request building, cost pre-check (worst case times `max_calls_per_step` found on the adapter, default 1), step count handled as in P16.
 4. After the call: post-cost check before running tools; per tool call: time check, then run with `time_limit_s`; calls that cannot be started are answered with a "not run" error and recorded with `executed=False`.
 5. The result gets `cost_usd`, `elapsed_s` and `limit_detail`; statuses `COST_CAP` and `TIME_CAP` are added and exported.
