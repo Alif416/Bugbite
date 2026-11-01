@@ -30,7 +30,7 @@ FR numbers refer to README.md section 5.
 - [x] **P15. Tools** — `edit_file`, `run_tests`, `run_command` (FR5.2). The edit guards do not cover changes made through `run_command`; P33 to P36 must check the final patch.
 - [x] **P16. Minimal loop** — think, call tool, read result, repeat; no caps yet (FR5.3). Only a required `max_steps`; the system prompt has not been tried on a real model.
 - [x] **P17. Hard caps** — max steps, cost, wall-clock; tested (FR5.4). Per-job only; the cost margin (1.25) is a guess to calibrate with real runs; batch/model/project caps are P46.
-- [ ] **P18. Loop detection** — repeated failed edits change strategy or stop (FR5.5).
+- [x] **P18. Loop detection** — repeated failed edits change strategy or stop (FR5.5). Two exact rules, nudge then stop; thresholds are guesses for P60; invalid-action and generic error streaks are not detected.
 - [ ] **P19. Cheap pre-steps** — parse tracebacks/paths from issue, run named failing test, feed as context; log token savings (FR5.7).
 - [ ] **P20. First end-to-end fix** — one hand-picked issue, free model, patch printed locally (no PR yet).
 

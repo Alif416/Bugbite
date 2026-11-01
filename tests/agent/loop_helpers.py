@@ -51,3 +51,12 @@ class Clock:
 
     def advance(self, seconds):
         self.t += seconds
+
+
+def assert_conversation_valid(result):
+    """Every tool call in the history has exactly one result with the same id, in order."""
+    from bugbite.adapter.types import ToolCallBlock, ToolResultBlock
+
+    calls = [b.id for m in result.messages for b in m.blocks if isinstance(b, ToolCallBlock)]
+    answers = [b.tool_call_id for m in result.messages for b in m.blocks if isinstance(b, ToolResultBlock)]
+    assert calls == answers, (calls, answers)

@@ -848,3 +848,35 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Failure analysis (FR11) and the dashboard must tell "ran out of money" from "ran out of time" from "ran out of steps", and a person reading a report needs numbers, not just a label. A fixed order makes results reproducible.
 - **Alternatives:** One `limit_reached` status (loses the reason); reusing `model_error` (a cap is not an error).
 - **Consequences:** Anything switching on `status` must handle the new values.
+
+## AD-101: Loop detection uses two exact rules, and a successful edit starts the count again
+
+- **Date:** 2026-11-01 · **Phase:** P18 · **Status:** Accepted (owner agreed)
+- **Decision:** Rule 1 flags the same tool call (same name, same arguments) returning the same result again and again. Rule 2 flags failed `edit_file` calls to the same file piling up, even with different text. Any successful `edit_file` clears all counts.
+- **Why:** These are the two ways small models are known to get stuck: repeating a call that cannot change, and guessing the wrong `old_text` over and over. Exact rules can be explained to a user, replayed, and tested; fuzzy "looks similar" matching would also stop legitimate work. Restarting the count after a real change matters because the normal fix loop (edit, run the tests, see the same failure, edit again) repeats the test call with an identical result while genuinely making progress.
+- **Alternatives:** Only repeated failed edits (misses a model re-reading a file or re-running a command); alternating-pattern detection (needs fuzziness, better tuned on real traces in P60).
+- **Consequences:** A model that re-reads one file three times without editing gets a nudge. Streaks of invalid actions and generic tool errors are not covered yet.
+
+## AD-102: Nudge once, then stop; thresholds are defaults in a `LoopPolicy`
+
+- **Date:** 2026-11-01 · **Phase:** P18 · **Status:** Accepted (owner agreed)
+- **Decision:** At the first threshold (3 repeats, or 4 failed edits to one file) the model is told it is repeating itself. At the second (5 repeats, or 6 failed edits) the run ends with `loop_detected`. The note is appended to the last tool result of the step. `LoopPolicy` holds the numbers; `loop_policy=None` turns detection off.
+- **Why:** FR5.5 says "change strategy or stop". One nudge costs only a few tokens in the next prompt and gives a model a chance to recover; stopping after it keeps the "agent loops forever" risk closed without relying on the cost and time caps to end a stuck run. A tool result is the one place both native and text-action models are guaranteed to read, and adding text to it avoids a second consecutive user message, which the request check forbids.
+- **Alternatives:** Stop immediately (gives up runs a nudge could save); nudge only (a stuck model burns money until a cap).
+- **Consequences:** The numbers are guesses to be tuned in P60. The recorded `ToolRun` keeps the real output; only the conversation carries the note, and `Step.nudge` records it.
+
+## AD-103: `loop_detected` is a stop reason; time wins over it; the conversation stays valid
+
+- **Date:** 2026-11-01 · **Phase:** P18 · **Status:** Accepted
+- **Decision:** After a stop signal the step's tool results are still added to the conversation, then the run ends as `loop_detected` with a sentence naming the rule and the count. If the time limit has also been reached the status is `time_cap`.
+- **Why:** The result is more useful for analysis (FR11, "agent loop detected" is a planned failure class) when it says why it stopped, and keeping every tool call answered means the recording can be replayed or resumed. Time already wins over cost and cost over steps (AD-100); a loop stop is decided only after the tools ran, so it ranks just after them.
+- **Alternatives:** Dropping the last results on a stop (breaks the conversation); reusing `max_steps` (hides the cause).
+- **Consequences:** Anything switching on `status` must handle `loop_detected`.
+
+## AD-104: The detector is a pure class that sees one executed tool run at a time
+
+- **Date:** 2026-11-01 · **Phase:** P18 · **Status:** Accepted
+- **Decision:** `LoopDetector.observe(run)` returns a `Signal` and keeps small counters (output text only as a hash). It ignores runs that were not executed. The loop only acts on the signal.
+- **Why:** The rules can then be tested exhaustively with hand-built runs and no model, and a recorder or replayer can run the same detector over a stored trace and get the same verdicts (FR10). Hashing keeps memory small however large the tool output is. Ignoring answered-but-not-run calls stops a skipped call from being counted as an attempt.
+- **Alternatives:** Detection code inside the loop (hard to test, hard to reuse for replay).
+- **Consequences:** Replays must feed runs in the same order to get the same verdicts.

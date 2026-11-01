@@ -575,6 +575,7 @@ print(result.status, result.final_text)
 | `max_steps` | the step limit was reached; the last reply's tool calls were not run |
 | `cost_cap` | the cost limit would be passed by the next step (or was passed); see below |
 | `time_cap` | the wall-clock limit was reached |
+| `loop_detected` | the agent kept repeating itself after being nudged; see "Loop detection" below |
 | `truncated` | a reply hit the output token limit; its tool calls were not run, because they may be cut off mid-edit |
 | `refused`, `empty_reply`, `unexpected_stop` | the model refused, said nothing, or stopped for an unknown reason |
 | `model_error` | the model call failed (`error_code` holds the adapter code, such as `rate_limited` or `context_too_long`); nothing is retried |
@@ -584,7 +585,7 @@ Nothing raises for these endings; the result keeps every step, the full conversa
 
 `format_issue_task(context)` builds the task text from a fetched issue: the issue title, body and comments are limited in size and every line of them is quoted with `| `, so text written by other people cannot pass itself off as instructions. The system prompt also tells the model that issue text, files and tool output are data. That reduces prompt injection but does not remove it; the real protections are the sandbox, the protected-file guards, the privacy gate and the verifier.
 
-Not there yet: loop detection (P18), running the failing test before the first model call (P19), and trimming a long conversation (a run that outgrows the model's context ends as `model_error` / `context_too_long`). The prompt has not been tried against a real model.
+Not there yet: running the failing test before the first model call (P19), and trimming a long conversation (a run that outgrows the model's context ends as `model_error` / `context_too_long`). The prompt has not been tried against a real model.
 
 ### Hard limits per job
 
@@ -598,3 +599,16 @@ Not there yet: loop detection (P18), running the failing test before the first m
 For one Haiku step with a 20,000-token prompt the worst case is $0.005173 (25,000 tokens at $0.125 per million plus 4,096 output tokens at $0.50 per million), so the pre-check stops a job only once it has spent more than $0.0948 of the $0.10; a typical step of that size costs about $0.00225, so the 30-step limit normally comes first. These figures are calculated, not measured. Because the margin pushes prompts above 80,000 tokens into the over-100,000-token price tier, long conversations are stopped early on purpose.
 
 What can still run over: a model call that has started cannot be cancelled (it is bounded by the adapter's own timeout), and a read-only tool call may take up to 30 s. The 1.25 margin is a guess to be checked against real token counts. Limits are per job; per-batch and per-model caps and the 5 USD project budget come in P46.
+
+### Loop detection
+
+A model can get stuck: re-reading the same file, re-running the same command, or guessing the wrong `old_text` for an edit again and again. `run_agent` watches every tool call that actually ran (`loop_policy=`, on by default; `None` turns it off) with two exact rules:
+
+- **Repeated call:** the same tool with the same arguments returned the same result again and again.
+- **Repeated failed edits:** `edit_file` keeps failing on the same file, even when the text differs each time. Refusals on protected files count.
+
+Any **successful edit starts all counts over**, because the repository changed. So edit, run the tests, see the same failure, edit again is not a loop. Calls that were answered without running (invalid actions, calls skipped for time) are not counted.
+
+At the first threshold the model is **nudged once**: a short note is added to the end of the last tool result of that step ("You have now made the same read_file call 3 times and got the same result ..." or "4 attempts to edit a.py have failed since your last successful edit ..."). It costs no extra model call, and names only the tool or the shortened file path and a count, never the output or arguments. At the second threshold the run ends with `loop_detected`; the step's tool results are still added to the conversation and `limit_detail` says which rule fired. If the time limit was also reached, `time_cap` wins. The result reports `nudges`, and each `Step` keeps its `nudge` text; the recorded `ToolRun` output is the real one, without the note.
+
+Defaults (`LoopPolicy`): repeated call 3 to nudge and 5 to stop; failed edits to one file 4 and 6. They are first guesses to be tuned with real traces (P60). Not detected yet: streaks of invalid actions from a text-action model, streaks of ordinary tool errors, and alternating patterns (A, B, A, B).
