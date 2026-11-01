@@ -26,3 +26,20 @@ models:
     per_issue_cap_usd: 0
     allow_private_code: true
     max_output_tokens: 4096   # no api_key_env: local models need no key
+
+  groq-free:
+    # Free hosted tier. EVERY value below that is specific to Groq is UNVERIFIED (it came from third-party
+    # pages on 2026-11-01). Confirm the model, context window, tool-calling support, rate limits and data
+    # terms on Groq's own pages (console.groq.com) before the first real run, and record the date.
+    # Free hosted tiers may use prompts for training, so public repos only (allow_private_code: false).
+    provider: openai_compatible
+    base_url: https://api.groq.com/openai/v1
+    model_name: openai/gpt-oss-120b   # confirm
+    context_window: 131072            # confirm
+    native_tool_calling: true         # confirm
+    price_per_input_token: 0
+    price_per_output_token: 0
+    per_issue_cap_usd: 0
+    allow_private_code: false
+    api_key_env: GROQ_API_KEY
+    max_output_tokens: 4096
