@@ -40,6 +40,11 @@ def test_single_user_message_is_valid():
     check(Message.user("hi"))
 
 
+def test_no_temperature_is_valid_and_means_the_providers_default():
+    check(Message.user("hi"), temperature=None)
+    check(Message.user("hi"))
+
+
 def test_system_prompt_tools_and_options_are_valid():
     check(Message.user("hi"), system=(TextBlock("be brief", cache=True),), tools=(TOOL,), temperature=2, max_output_tokens=1)
     check(Message.user("hi"), temperature=0)

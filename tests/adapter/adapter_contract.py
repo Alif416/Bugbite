@@ -34,7 +34,7 @@ def simple_request(**overrides):
     values = dict(
         system=(TextBlock("You are a careful assistant.", cache=True),),
         messages=(Message.user("Say hello."),),
-        temperature=0.0,
+        temperature=None,  # the portable value: every provider accepts its own default
         max_output_tokens=256,
     )
     values.update(overrides)
