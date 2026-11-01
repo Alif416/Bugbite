@@ -36,7 +36,7 @@ FR numbers refer to README.md section 5.
 
 ## Trace and record/replay (early, so everything after is cheap to test)
 
-- [ ] **P21. Trace store** — save every model call, tool call, result, tokens, cost, time to Postgres (FR8.1).
+- [x] **P21. Trace store** — save every model call, tool call, result, tokens, cost, time to Postgres (FR8.1). Store, recorder and tests are built; not yet wired into the runner or CLI (P20 is on hold, P45); no access control on private traces yet.
 - [ ] **P22. Recorder** — structured on-disk recording with model, prompt version, config, commit hash (FR10.1, FR10.4).
 - [ ] **P23. Replayer** — deterministic offline replay; same recording twice gives same result (FR10.2, FR10.5).
 - [ ] **P24. Replay works for both adapters** (FR14.7).

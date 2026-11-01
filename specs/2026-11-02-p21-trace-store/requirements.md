@@ -69,3 +69,17 @@ See `specs/decisions.md` AD-113 to AD-116.
 - The Bugbite commit hash is stored if the caller supplies it; nothing here finds it.
 - Jobs whose process dies stay `running` until someone aborts them; a sweeper is not built.
 - The ledger has no step numbers; the recorder derives them from event order (AD-114), which holds only if the same ledger serves exactly one job at a time.
+
+## Findings from the build
+
+- **The real database found a bug that every fake-store test missed:** the connection returns rows as dictionaries, and the migration code read `row[0]`. It failed on the first real run and was fixed (`row["version"]`). Reason enough for the real-PostgreSQL tests to exist.
+- **Independent of P20.** This branch starts from `main`, which has no retry wrapper, so the tests use a small test-only retrying layer around the metering layer to produce failed and retried attempts. The recorder itself only reads the ledger, so it works with any wrapper chain.
+- **Money is an unbounded `numeric`.** The plan said fixed precision; a fixed scale would round a cost silently if prices ever had more decimals, so the column has no scale and a test stores `0.0123456789012` and reads it back identical.
+- **Duplicate steps are not an error.** `record_step` is an upsert so a nudge can be added at the end of a run; what the database refuses is a duplicate position of a model call or tool call, and a second `finish_job`.
+- **Nudges are stored when the run finishes**, because the loop only reports them in the final result; a run that dies mid-way loses its nudge text (the model calls and tool calls are already stored).
+- **The tightened kill test:** a test terminates the recorder's connection in the middle of a run. The result is identical to a run without a recorder, the dead connection is counted, the store reconnects by itself, and the later writes and the finish land.
+- **Printed trace (manual check):** one line per model call with tokens and cost and one per tool call under each step; easy to follow how the agent reached its fix.
+- **Mutation check:** 22 breakages (step off by one, failed attempts dropped, reply and tool output unscrubbed, NUL not replaced, SQL built from text, the connection string in the repr, a database error escaping, cost not summed, a missing cascade, nudges, duplicated ledger entries, positions, double finish, aborting a finished job, list order, JSON keys, earlier ledger entries, retries, totals, the sensitivity check, an unscrubbed config) are all caught.
+- **Merge note:** this branch and the P20 branch both append a section to the end of the README; merging the second one will need a trivial conflict fix.
+- Not done: wiring into the runner, access control, retention, a sweeper for stale `running` jobs.
+- Full suite (foreground): 2134 passed and 156 skipped with Docker unreachable; 2284 passed and 6 skipped with Docker running (the trace store tests started and removed their own PostgreSQL 17); no leftover containers or volumes. New dependencies in `uv.lock`: `psycopg`, `psycopg-binary`, and `tzdata` (which `psycopg` needs only on Windows).
