@@ -23,6 +23,7 @@ REPO_NOT_FOUND = "repo_not_found"
 NOT_PYTHON = "not_python"
 ISSUE_NOT_FOUND = "issue_not_found"
 NOT_AN_ISSUE = "not_an_issue"
+NO_TESTS = "no_tests"
 
 ALL_CODES = frozenset(
     {
@@ -36,6 +37,7 @@ ALL_CODES = frozenset(
         NOT_PYTHON,
         ISSUE_NOT_FOUND,
         NOT_AN_ISSUE,
+        NO_TESTS,
     }
 )
 

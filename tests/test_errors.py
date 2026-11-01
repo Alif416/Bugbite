@@ -16,6 +16,7 @@ def test_codes_are_stable():
         "not_python",
         "issue_not_found",
         "not_an_issue",
+        "no_tests",
     }
 
 

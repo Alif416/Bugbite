@@ -54,6 +54,7 @@ class SandboxConfig:
     max_lifetime_s: int = 1800
     workspace_mb: int = 2048  # soft cap on /workspace disk use
     setup_timeout_s: int = 900  # per clone/install step
+    test_timeout_s: int = 300  # per full test run
 
 
 _MODEL_FIELDS: dict[str, type | tuple[type, ...]] = {
