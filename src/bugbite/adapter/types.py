@@ -250,9 +250,12 @@ class GenerationResponse:
     raw_stop_reason: str | None = None  # the provider's own value, kept for debugging
     latency_s: float = 0.0
     request_id: str | None = None
+    usage_estimated: bool = False  # True when the server reported no token counts and they were estimated
 
     def __post_init__(self) -> None:
         blocks = _tuple_of(self.blocks, (TextBlock, ToolCallBlock), "GenerationResponse.blocks")
+        if not isinstance(self.usage_estimated, bool):
+            raise TypeError("GenerationResponse.usage_estimated must be a bool")
         object.__setattr__(self, "blocks", blocks)
         if self.stop_reason not in STOP_REASONS:
             raise ValueError(f"GenerationResponse.stop_reason must be one of {sorted(STOP_REASONS)}, got {self.stop_reason!r}")
@@ -286,11 +289,12 @@ class GenerationResponse:
             "raw_stop_reason": self.raw_stop_reason,
             "latency_s": self.latency_s,
             "request_id": self.request_id,
+            "usage_estimated": self.usage_estimated,
         }
 
     @classmethod
     def from_dict(cls, data: Any) -> "GenerationResponse":
-        d = _mapping(data, "response", {"schema_version", "blocks", "stop_reason", "usage", "model", "raw_stop_reason", "latency_s", "request_id"})
+        d = _mapping(data, "response", {"schema_version", "blocks", "stop_reason", "usage", "model", "raw_stop_reason", "latency_s", "request_id", "usage_estimated"})
         _check_version(d, "response")
         usage = _mapping(d.get("usage"), "response.usage", set(_USAGE_KEYS))
         try:
@@ -304,6 +308,7 @@ class GenerationResponse:
                 raw_stop_reason=_optional_string(d, "raw_stop_reason", "response"),
                 latency_s=_number(d, "latency_s", "response"),
                 request_id=_optional_string(d, "request_id", "response"),
+                usage_estimated=_bool(d, "usage_estimated", "response"),
             )
         except SchemaError:
             raise
