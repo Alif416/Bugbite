@@ -498,6 +498,12 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The project's Claude API reference requires the official SDK for Python projects and says not to hand-roll HTTP. The SDK also tracks API-version headers and request shapes, which have changed several times (this very phase met the removal of sampling parameters). That differs from the OpenAI-compatible adapter (AD-052), where many unrelated servers share only a loose protocol and a small direct client is the better fit. The SDK retries 408, 409, 429, and 5xx by default; switching that off keeps AD-049 true (adapters raise immediately, retry policy lives in one place later, P51) and keeps every call visible in cost accounting.
 - **Alternatives:** Raw `httpx` calls (we would own version and shape drift); leaving SDK retries on (hidden repeated paid calls and an unclear rate-limit story).
 - **Consequences:** One more dependency, with its own HTTP stack. Tests must mock at the SDK's HTTP layer. The SDK's error types and attributes are part of what the adapter relies on and are covered by tests.
+- **Added during the build (2026-11-01), SDK 2.3.0:**
+  - It authenticates with an `Authorization: Bearer` header, not `x-api-key`, and sends API version `2026-10-21`. `messages.create` has no `temperature`, `top_p`, or `top_k` argument at all.
+  - Given no key it silently uses `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or a saved profile from the environment, so `ClaudeAdapter` refuses to be built without an explicit key (nothing is read from the environment). With an explicit key and base URL, ambient credentials are ignored; tests prove it.
+  - Its default HTTP client follows redirects, which could carry the key elsewhere, so the adapter supplies a client with redirects off.
+  - The SDK's error `message` repeats the whole response body, so error text is built from the parsed `error.message` field instead.
+  - For a malformed 200 response it returns odd objects instead of raising (a `str`, a `list`, a `Message` with `content=None`, even an error body parsed as a `Message`). Without a check these would have passed as an empty success, so the adapter validates every result and maps an error body inside a 200 by its error type.
 
 ## AD-059: Temperature is optional in the interface; Claude accepts only its default (amends AD-046)
 

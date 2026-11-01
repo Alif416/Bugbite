@@ -79,3 +79,10 @@ See `specs/decisions.md` AD-058 to AD-064.
 ## Decision log
 
 Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-058 to AD-064).
+
+## Findings from the build (2026-11-01)
+
+- **Live check not run.** No `ANTHROPIC_API_KEY` was available, so nothing was exercised against the real API. The behaviours taken from the local API reference (temperature rule, thinking disabled accepted at the default effort, the 512-token cache minimum) are still unconfirmed, and so is the cost of a real call. Everything else is verified against a mock of the SDK's HTTP layer, a loopback server (using the adapter's own default client), and the shared adapter contract.
+- **SDK found: `anthropic` 2.3.0** (built on `httpx2`). It sends `Authorization: Bearer` (not `x-api-key`) and API version `2026-10-21`; `messages.create` has no sampling arguments at all, so no sampling parameter can be sent even by mistake. The SDK quirks that mattered (silent use of ambient credentials, redirects followed by default, error messages that repeat the whole body, malformed 200 responses returned as odd objects instead of errors) are listed under AD-058.
+- Safety properties were checked by breaking them on purpose: removing the temperature rule, no longer disabling thinking, leaving the SDK's retries on, following redirects, not redacting the key, putting tool results after text, letting a malformed 200 pass, ignoring the top-level cache slot in the marker budget, and allowing an adapter without a key each made at least one test fail; the restored code passes.
+- A test-writing error was caught on the way: the SDK itself coerces the string `"9"` to the integer 9 in usage counts, so that was not an adapter case.
