@@ -1,7 +1,7 @@
 import pytest
 
 from bugbite import errors
-from bugbite.errors import ALL_CODES, InputError
+from bugbite.errors import ALL_API_CODES, ALL_CODES, GitHubAPIError, InputError
 
 
 def test_codes_are_stable():
@@ -12,7 +12,38 @@ def test_codes_are_stable():
         "not_a_repo_url",
         "repo_mismatch",
         "empty_input",
+        "repo_not_found",
+        "not_python",
+        "issue_not_found",
+        "not_an_issue",
     }
+
+
+def test_api_codes_are_stable():
+    assert ALL_API_CODES == {
+        "rate_limited",
+        "network_error",
+        "server_error",
+        "auth_failed",
+        "unexpected_response",
+    }
+
+
+@pytest.mark.parametrize("code", sorted(ALL_API_CODES))
+def test_api_error_carries_code_and_message(code):
+    err = GitHubAPIError(code, "try again later")
+    assert err.code == code
+    assert err.message == "try again later"
+    assert str(err) == "try again later"
+
+
+def test_api_error_validates_code_and_message():
+    with pytest.raises(ValueError):
+        GitHubAPIError("made_up", "x")
+    with pytest.raises(ValueError):
+        GitHubAPIError("rate_limited", "")
+    with pytest.raises(ValueError):
+        GitHubAPIError("invalid_url", "x")  # an InputError code, not an API one
 
 
 @pytest.mark.parametrize("code", sorted(ALL_CODES))
