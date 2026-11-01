@@ -646,3 +646,53 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Showing history in the same format the model must produce keeps it on format. Hiding `invalid_action` stops the model learning that name as a valid thing to write. Deterministic ids keep recordings reproducible and replay exact (FR10.5), and numbering from the history avoids any hidden counter state in the wrapper.
 - **Alternatives:** Describing history in prose (the model drifts from the format); random ids (breaks replay).
 - **Consequences:** The text history is longer than a native one, which costs tokens on every call; this is part of the price of the text-action method and shows up in the comparison.
+
+---
+
+## AD-076: Two independent locks: a check at job start and a guard at the model boundary
+
+- **Date:** 2026-11-01 · **Phase:** P13 · **Status:** Accepted
+- **Decision:** The rule is enforced in two places. `check_job_privacy` runs when a job starts and refuses a job whose data the chosen model may not receive, with a clear message and before any work or cost. `PrivacyGuardAdapter` wraps the raw model adapter as the innermost layer and refuses every individual call that is not allowed. `create_adapter` takes the data's `Sensitivity` and defaults to `PRIVATE`, so forgetting to say what the data is makes a model that cannot take private code refuse rather than leak.
+- **Why:** The acceptance criterion is absolute ("private code is never sent to a provider that is not marked as allowed"). A start-time check alone can be skipped by a code path nobody remembered to wire; a call-time check alone makes the job fail only after setup and sandbox time were spent, with a less helpful message. Together they give an early explanation and a lock that cannot be bypassed. Innermost placement means the metering and text-action layers, including repair calls, can only reach the network through the guard. The owner chose this option.
+- **Alternatives:** Job-start only (a missed code path leaks); boundary only (late and unfriendly failure).
+- **Consequences:** Every adapter built for a job must be told the data's sensitivity. A job that is refused at the boundary rather than at start indicates a missing start check.
+
+## AD-077: Public repos and the owner's sandbox list may go to any model; everything else is private
+
+- **Date:** 2026-11-01 · **Phase:** P13 · **Status:** Accepted
+- **Decision:** A job's data is `PUBLIC` when GitHub reports the repo as public, `SANDBOX` when its name is on the owner's `sandbox_repos` list in `config/app.yaml` (private or public), and `PRIVATE` otherwise. Unknown or missing visibility is `PRIVATE`. The name compared is the canonical one returned by the GitHub API (`RepoInfo.full_name`), case-insensitively and exactly, never the text the user typed. The list starts empty.
+- **Why:** This is FR14.9's own wording ("public repos and sandbox issues"). Failing closed on anything uncertain is the only safe direction for a rule about leaking code. Using the API's canonical name matters because the user-typed name can differ in case or point at a redirect, and P3 already refuses jobs where the API name differs from the requested one. The owner chose public plus an owner-set list over public only, because their own demo and test repos should be usable with the free tier even if private. The key is called `sandbox_repos` (matching the README's term for demo repos) with a comment saying it is unrelated to the Docker sandbox.
+- **Alternatives:** Public only (stricter, but private demo repos could not use free tiers); letting each job declare its own sensitivity (a user mistake could leak).
+- **Consequences:** Entries in `sandbox_repos` are trusted completely: anyone who can edit the file can widen what free tiers see. It lives in version-controlled config on purpose.
+
+## AD-078: A blocked job is refused with a clear message; no switching and no override
+
+- **Date:** 2026-11-01 · **Phase:** P13 · **Status:** Accepted
+- **Decision:** When a model may not receive the job's data, the job is refused with a `PrivacyError` whose message names the model and the repository and lists the configured models that would be allowed (or says that none is). The system never switches models by itself, and no flag, environment variable, or argument turns the rule off. The only way to change who may receive private code is editing `allow_private_code` in `config/models.yaml`.
+- **Why:** A silent switch would run the job on a model the user did not choose, distorting benchmark comparisons (FR13.2) and possibly spending money unexpectedly. An override flag would turn an enforced rule into a convention, and the acceptance criterion says "never". Editing the config is deliberate, reviewable, and recorded in version control. The owner chose refusal.
+- **Alternatives:** Automatic fallback to an allowed model; a `--force` style override.
+- **Consequences:** A user with a private repo and only non-allowed models configured must change configuration or pick another model. The message states this plainly.
+
+## AD-079: `PrivacyError` is its own error family
+
+- **Date:** 2026-11-01 · **Phase:** P13 · **Status:** Accepted
+- **Decision:** Privacy refusals raise `PrivacyError` (code `private_code_blocked`), which is not an `InputError` and not an `AdapterError`. The metering wrapper does not record it as a model call (nothing was sent), and the text-action wrapper does not try to repair it.
+- **Why:** Code that catches `AdapterError` to retry or fall back, or `InputError` to show a friendly message, must not treat a policy refusal like a provider hiccup or a typo. Keeping it separate means such handlers cannot swallow it by accident, and the agent loop can recognise it and stop the job as aborted for a stated reason (FR8.3).
+- **Alternatives:** Reusing `InputError` (a user can fix it, but mid-job retry logic might catch it); a new `AdapterError` code (retry policies key on adapter errors).
+- **Consequences:** The loop and job manager must handle `PrivacyError` explicitly (abort with a reason).
+
+## AD-080: Haiku stays `allow_private_code: false`
+
+- **Date:** 2026-11-01 · **Phase:** P13 · **Status:** Accepted
+- **Decision:** `haiku` keeps `allow_private_code: false`; `groq-free` is `false`; `local-free`, which runs on the owner's machine, is `true`. A comment in the model config records that changing a model's value is the owner's decision after reading the provider's current data terms.
+- **Why:** Whether Anthropic's API terms suit the owner's private code is a legal and trust decision that is theirs, not an engineering default, and the cautious value costs little: benchmarks and demos use public and sandbox repos. The README also asks for the date and terms to be recorded. The owner chose to keep it `false` for now.
+- **Alternatives:** Setting `true` now (a policy choice that was not made).
+- **Consequences:** Private repos can currently only be worked on with the local model, which cannot do tool calls well until it is real (P12 fallback) and has not been chosen yet (README question 4).
+
+## AD-081: Concrete adapters are only built through `create_adapter`, enforced by a test
+
+- **Date:** 2026-11-01 · **Phase:** P13 · **Status:** Accepted
+- **Decision:** Outside `src/bugbite/adapter/`, no module may import the concrete adapter classes or modules. A test reads the source tree and fails if one does, and a second test proves the checker would catch a violation.
+- **Why:** The guard only protects adapters that are wrapped in it. Anyone constructing a `ClaudeAdapter` or `OpenAICompatibleAdapter` directly would get an unguarded path to the network, and a rule that depends on every future author remembering is not a rule. A test makes the shortcut fail immediately in CI.
+- **Alternatives:** Documentation only (forgotten under time pressure); making the concrete classes private (Python offers no real privacy, and tests need them).
+- **Consequences:** Tests inside the adapter package and the `tests/` folder may still build concrete adapters; new production code cannot.
