@@ -776,3 +776,43 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The structured report already exists (P6); the model needs which tests fail and why, not pages of progress output, and every token is paid for on every later turn (FR3.4). The tail keeps the traceback visible when the one-line message is not enough.
 - **Alternatives:** Raw output (large and noisy); full per-test details (large for big suites).
 - **Consequences:** If the summary hides something a model needs, it can call `run_command` with pytest and its own options. Sizes are starting values for P20 to tune.
+
+## AD-092: `max_steps` is required, with no default, until P17 adds the real caps
+
+- **Date:** 2026-11-01 · **Phase:** P16 · **Status:** Accepted (owner agreed)
+- **Decision:** `run_agent` requires a `max_steps` argument and has no default. It counts model calls. When the last allowed reply still asks for tools, the run ends as `max_steps` and those calls are not run.
+- **Why:** The roadmap says "no caps yet", but a loop on a paid model with no way to stop is an unbounded spend if a model gets stuck, and every test or script would carry that risk. A required argument costs one line for the caller and cannot be forgotten. Not running the last reply's tools keeps the stop clean: nothing changes in the sandbox after the limit.
+- **Alternatives:** No limit at all (literal reading of the roadmap); a default such as 50 (silently applied, and it would hide that the limit exists).
+- **Consequences:** P17 replaces this with steps, cost and wall-clock caps and a proper stop reason; `max_steps` will stay as one of them.
+
+## AD-093: Model failures end the run with a result, never an exception
+
+- **Date:** 2026-11-01 · **Phase:** P16 · **Status:** Accepted (owner agreed)
+- **Decision:** An `AdapterError` ends the run with status `model_error` and a `PrivacyError` with `privacy_blocked`. The result keeps the error code and message, all earlier steps and the conversation. The loop does not retry.
+- **Why:** By the time a call fails the sandbox may already hold edits and the run has cost money; losing the record of that would make failures impossible to analyse (FR11) or replay. Adapters deliberately do not retry (P9, P10), so a retry policy belongs with the caps and spend control, where it can count cost. Privacy keeps its own status because it is a different kind of event from a provider failure (AD-079).
+- **Alternatives:** Raise (loses the work done); retry inside the loop (hides cost, no policy yet).
+- **Consequences:** Callers must check `status`. Programming mistakes (bad arguments) still raise.
+
+## AD-094: The loop reports through an optional observer with typed events
+
+- **Date:** 2026-11-01 · **Phase:** P16 · **Status:** Accepted (owner agreed)
+- **Decision:** `run_agent` accepts an observer callback and sends `ModelCallEvent`, `ToolCallEvent` and `FinishEvent`. If the observer raises, the error is logged by type only, counted in `observer_errors`, and the run continues.
+- **Why:** P21 (trace store) and P22 (recorder) must see every call as it happens, but they should not need to change the loop. A recorder failing in the middle of a paid job should not throw the job away; the count makes the gap visible to the caller, who can decide to discard the run.
+- **Alternatives:** Only the returned result (recording happens after the fact, so a crash loses everything); letting observer errors propagate (loses the job over a logging fault).
+- **Consequences:** Events carry full content, so observers must protect private code (AD-076 onward); the loop itself logs none of it.
+
+## AD-095: The task is a plain string; the system prompt is versioned and built in
+
+- **Date:** 2026-11-01 · **Phase:** P16 · **Status:** Accepted (owner agreed)
+- **Decision:** `run_agent` takes the task as text. `format_issue_task(context)` builds that text from a fetched issue with size limits and clearly marked untrusted-data sections. The system prompt lives in `bugbite.agent.prompt` with `PROMPT_VERSION`.
+- **Why:** The loop should work the same for a GitHub issue, an evaluation case and a hand-written test, and should not depend on GitHub types. A prompt version lets a recording say exactly which instructions were used (FR10.4) and lets comparisons across models be fair. Marking issue text as data and limiting its size reduces prompt-injection and token cost; it does not remove the risk, which is why the real defences stay in code.
+- **Alternatives:** Passing a `JobContext` into the loop (couples it to GitHub, harder to test and reuse).
+- **Consequences:** Changing the prompt means bumping `PROMPT_VERSION`. Pre-steps (P19) will add to the task text.
+
+## AD-096: Tool calls in a reply cut off by the output limit are not run
+
+- **Date:** 2026-11-01 · **Phase:** P16 · **Status:** Accepted
+- **Decision:** If a reply ends because it hit the output token limit (`max_tokens`), the run ends as `truncated` and none of its tool calls are executed, even if they parse.
+- **Why:** A cut-off reply can contain a tool call whose arguments were cut in the middle, for example an `edit_file` with half of the new text. Running it could write a broken file, and the model has no chance to notice. Stopping is the honest result; P17 or a later retry policy can decide whether to ask the model to continue.
+- **Alternatives:** Run calls that parse (risky); ask the model to continue automatically (a policy and cost decision for later).
+- **Consequences:** A model with too small an output limit will end runs early; the status makes this visible.
