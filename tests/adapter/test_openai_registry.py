@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from openai_helpers import KEY
 
-from bugbite.adapter import OpenAICompatibleAdapter, create_adapter, registered_providers
+from bugbite.adapter import OpenAICompatibleAdapter, TextActionAdapter, create_adapter, registered_providers
 from bugbite.config import ConfigError, load_models_config
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,7 +23,8 @@ def test_create_adapter_builds_it_with_the_key():
 
 def test_keyless_local_models_need_no_key():
     adapter = create_adapter(MODELS["local-free"])
-    assert isinstance(adapter, OpenAICompatibleAdapter)
+    # local-free has no native tool calling, so it comes wrapped in the text-action fallback (P12)
+    assert isinstance(adapter, TextActionAdapter) and isinstance(adapter.inner, OpenAICompatibleAdapter)
     adapter.close()
 
 
