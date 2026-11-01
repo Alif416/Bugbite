@@ -10,7 +10,7 @@ Do the cheap, obvious work in plain code before the first model call, so the mod
 - Parsers for issue text (pure functions): Python tracebacks, `file.py:LINE` references, file paths, pytest test ids and test function names
 - Mapping a path from the reporter's machine to a file in the repository
 - `run_prestep(sandbox, context, ...)`: code snippets around traceback locations, the list of mentioned files that exist, and one test run of the named tests, all in the sandbox
-- A labelled, quoted "Checks Bugbite ran before you started" section added to the task text
+- A labelled, quoted "Checks Bugbite ran before you started" section added to the task text (`format_issue_task(context, checks=...)`)
 - A `PrestepReport` of plain numbers, one log line (counts only), and an on/off switch
 - Never failing the job: any problem becomes a note and the job goes on
 
@@ -69,3 +69,16 @@ See `specs/decisions.md` AD-105 to AD-108.
 - A test that needs the network fails in the sandbox; its failure is then shown to the model as a failure, which can mislead. The existing note about network-dependent tests applies.
 - Quoted snippets and test output cost prompt tokens on every step; the caps are first guesses.
 - The pre-step report is not stored anywhere yet (P21, P22).
+
+## Findings from the build
+
+- The plan's `compose_task(issue_task, result)` became a `checks=` argument of `format_issue_task`, so the section lands before the final "Your job" instruction instead of after it. With `checks=""` the task is byte-for-byte what it was.
+- Bare test names need their class to be run (`path::Class::test_x`): the pre-step reads the file and walks up the indentation to find the enclosing classes (nested classes too); a function nested inside another function is not run.
+- Choosing which locations to show first and reading them afterwards let unreadable ones (a symlink, a binary file) use up the three snippet slots. A review of the tests showed a hostile traceback could crowd out real code, so locations are now tried in turn (up to 10) until three are readable; a test covers it.
+- A frame whose path maps to a tracked symlink counts in `mapped_frames` (it matched by name) but is not read (it resolves outside the repo), so `mapped_frames` can be larger than `snippets`.
+- `tool_calls_done_in_code` counts snippet reads, name lookups and the test run. It is a count of operations, not a count of model steps saved: a model can make several calls in one reply.
+- The first test for estimated tokens passed only because that section's length divided by four; the mutation check caught it. The test now covers every remainder.
+- Mutation check: 22 breakages (an unmapped path used, ambiguous mapping, snippet window, reading without the symlink-safe resolver, ids not matched to tracked files, the target cap, quoting, a section when empty, the switch, a runner or git exception escaping, the time budget, ambiguous bare names, lost class names, frame order, token rounding, the listed-file cap, snippet slots, binary files, exception cut, control characters, the section not placed in the task) are all caught.
+- A realistic section for a small issue is about 1,000 characters, roughly 260 estimated tokens, and takes two operations in code.
+- Not measured: the real effect on tokens, cost and success. That needs the eval harness (switch on and off).
+- Full suite (foreground): 2097 passed and 124 skipped with Docker unreachable; 2215 passed and 6 skipped with Docker running (including the real clone and the real pytest run); no leftover containers or volumes.
