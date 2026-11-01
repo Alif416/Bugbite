@@ -48,9 +48,9 @@ class LocalSandbox:
                                   cwd=self.root, env={"PATH": "/usr/bin:/bin", **(env or {}), "PATH": "/usr/bin:/bin"})
             return CommandResult(done.returncode, self._to_sandbox(done.stdout), self._to_sandbox(done.stderr), False, 0.0, False)
         assert all(isinstance(part, str) for part in command)
-        assert command[0] in ("python", "grep", "chmod", "mkdir"), f"unexpected command: {command[0]}"
+        assert command[0] in ("python", "grep", "chmod", "mkdir", "git"), f"unexpected command: {command[0]}"
         argv = [sys.executable if command[0] == "python" else command[0]] + [self._to_host(p) for p in command[1:]]
-        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=self.root if command[0] == "git" else None)
         return CommandResult(done.returncode, self._to_sandbox(done.stdout), self._to_sandbox(done.stderr), False, 0.0, False)
 
     def write_file(self, path: str, content):
@@ -70,3 +70,14 @@ class LocalSandbox:
             return None
         assert host.stat().st_size <= max_bytes
         return host.read_bytes()
+
+
+def make_git_repo(box, files=None):
+    """Commit everything under the fake sandbox's folder to a real git repository there."""
+    for rel, text in (files or {}).items():
+        box.write(rel, text)
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=box.root, check=True, capture_output=True)
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init", "--allow-empty")
