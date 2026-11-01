@@ -14,9 +14,10 @@ jobs:
         run: |
           uv python install 3.11
           uv sync
-      - name: Pre-pull sandbox test images
+      - name: Pre-pull and build sandbox images
         run: |
           docker pull python:3.11-slim
           docker pull hello-world:latest
+          docker build -f docker/sandbox.Dockerfile -t bugbite-sandbox:py3.11-1 docker/
       - name: Run tests
         run: uv run pytest

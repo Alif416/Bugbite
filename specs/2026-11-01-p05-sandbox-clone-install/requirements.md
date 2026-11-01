@@ -11,7 +11,7 @@ Get a target repository into the sandbox and ready to test: clone it inside the 
 - Disk-backed workspace volume with a soft size cap (`workspace_full` error)
 - Network on for setup only, then disconnected before anything else runs
 - `git clone` inside the container: shallow, default branch or a pinned ref/commit
-- Dependency installation with a heuristic and fallbacks: pyproject/setup.py/setup.cfg, requirements files, optional test requirements, pytest if missing
+- Dependency installation with a heuristic and fallbacks: pyproject/setup.py/setup.cfg, test-like PEP 735 dependency groups, requirements files, optional test requirements, pytest if missing
 - Every setup step recorded (command, exit code, time, output tail) in a `SetupResult` with a `failure_reason` that later phases can turn into failure labels
 - Tests that run offline, with Docker, and with the internet, each skipping cleanly when unavailable
 
@@ -33,7 +33,7 @@ Get a target repository into the sandbox and ready to test: clone it inside the 
 | Workspace | Disk-backed volume with a soft size cap | Repo and venv must not eat the 2 GB memory limit; the owner's choice (AD-033) |
 | Clone | `git` in the container, shallow, ref validated, no credentials | Safe argument handling and no secrets in the container (AD-034) |
 
-See `specs/decisions.md` AD-030 to AD-034. AD-026 (hardened profile) is superseded in part: the workspace is no longer a tmpfs.
+See `specs/decisions.md` AD-030 to AD-035. AD-026 (hardened profile) is superseded in part: the workspace is no longer a tmpfs.
 
 ## Context
 
@@ -59,7 +59,8 @@ See `specs/decisions.md` AD-030 to AD-034. AD-026 (hardened profile) is supersed
 - Per-repo Python versions are deferred; setup on a repo that needs a different Python will fail with `install_failed`.
 - Whether to add build tools (gcc) to the image depends on how many chosen benchmark repos need them; revisit when the SWE-bench subset is chosen (P48).
 - Closing the host-reachability gap on the setup network.
+- Requirements kept in subfolders (for example `requirements/tests.txt`) are not detected yet (AD-035).
 
 ## Decision log
 
-Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-030 to AD-034).
+Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-030 to AD-035).

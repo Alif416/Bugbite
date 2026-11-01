@@ -289,3 +289,13 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Shallow clones are fast and small, which suits the time and disk budget. Benchmark runs (P48) need an exact base commit, hence the ref path. List-form arguments and ref validation prevent argument injection (a ref beginning with `-` could be read as a git option). Keeping credentials out follows mission principle 4 and the README rule that keys are never exposed to the agent or container.
 - **Alternatives:** Full clones (slower, larger, rarely needed); cloning on the host and copying in (host runs git on untrusted data and needs file transfer); passing the token into the container for private repos (breaks the no-secrets rule).
 - **Consequences:** No history beyond the checked-out commit. Private repos need a separate design later.
+
+---
+
+## AD-035: Install test-like PEP 735 dependency groups (found on a real repo)
+
+- **Date:** 2026-11-01 · **Phase:** P5 · **Status:** Accepted (extends AD-032)
+- **Decision:** If `pyproject.toml` has a `[dependency-groups]` table, install the groups named `test`, `tests`, or `testing` (or `dev` only when no test-like group exists) with `pip install --group <name>`, as optional steps. Because `--group` needs pip 25.1 or newer and the base image ships an older pip, an optional `pip-upgrade` step runs first, only when there are groups to install. Group names are read inside the container with `tomllib` and filtered through a fixed whitelist before they reach any command line.
+- **Why:** The first manual run on a real public repo (`pallets/itsdangerous`) "succeeded" at setup but its tests could not import `freezegun`, because the test dependencies live in a dependency group that the original heuristic ignored. The README names "environment setup fails on many repos" as a main risk, and this style is increasingly common with uv-based projects. After the change the same repo sets up in about 11 seconds and its own 297 tests pass offline. Whitelisting names stops a hostile `pyproject.toml` from injecting pip options.
+- **Alternatives:** Ignore groups and let such repos fail with import errors in P6 (a mislabelled failure: it would look like a test failure, not a setup gap); install every group (pulls in docs and lint tools, slower and more likely to conflict).
+- **Consequences:** An extra pip upgrade step (about 2 seconds) for repos with groups. Requirements kept in subfolders such as `requirements/tests.txt` are still not detected; add them when a chosen benchmark repo needs it. Group install failures are warnings, so a repo can still report `ok` with missing test dependencies; P6 test collection errors will surface that.

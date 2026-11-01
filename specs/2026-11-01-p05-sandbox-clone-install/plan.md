@@ -34,6 +34,7 @@ Branch: `2026-11-01-p05-sandbox-clone-install`. See `requirements.md` for scope 
    - always: create the virtual environment `/workspace/.venv`
    - if `pyproject.toml`, `setup.py`, or `setup.cfg` exists: `pip install -e ".[test,tests,testing]"` (pip only warns about extras that do not exist), with `pip install -e .` as the fallback if that fails
    - if there is no packaging file but `requirements.txt` exists: `pip install -r requirements.txt` (required)
+   - if `pyproject.toml` declares PEP 735 `[dependency-groups]`, install the test-like ones (`test`, `tests`, `testing`, else `dev`) with `pip install --group`, preceded by an optional `pip>=25.1` upgrade (AD-035)
    - optional test requirements (`requirements-dev.txt`, `requirements-test.txt`, `requirements_test.txt`, `test-requirements.txt`, `dev-requirements.txt`): installed best effort; failure is a warning
    - finally: install `pytest` only if it is not already importable, so repo pins are not overridden
 2. Each step runs with `setup_timeout_s` and is recorded as `StepResult(name, command, exit_code, duration_s, timed_out, output_tail, required, ok)`; the tail keeps the last 2,000 characters of combined output.
@@ -57,7 +58,7 @@ Branch: `2026-11-01-p05-sandbox-clone-install`. See `requirements.md` for scope 
 
 ## 7. Docs and wrap-up
 
-1. Add AD-030 to AD-034 to `specs/decisions.md` (written with the specs) and mark AD-026 as superseded in part.
+1. Add AD-030 to AD-035 to `specs/decisions.md` (written with the specs) and mark AD-026 as superseded in part.
 2. README: how the image is built on first use, and the `internet` marker.
 3. Update CI to build the image up front. Tick P5 in `specs/roadmap.md`; add "prune dangling workspace volumes" to P7.
 4. Commit in small logical commits, then merge into `main` with `--no-ff` when asked.
