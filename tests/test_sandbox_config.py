@@ -16,14 +16,15 @@ def write(tmp_path, data):
 
 def test_defaults():
     cfg = SandboxConfig()
-    assert cfg.image == "python:3.11-slim"
+    assert cfg.image == "bugbite-sandbox:py3.11-1"
     assert cfg.cpus == 1
     assert cfg.memory_mb == 2048
     assert cfg.pids_limit == 256
     assert cfg.command_timeout_s == 120
     assert cfg.max_output_bytes == 1_048_576
     assert cfg.max_lifetime_s == 1800
-    assert cfg.workspace_mb == 1024
+    assert cfg.workspace_mb == 2048
+    assert cfg.setup_timeout_s == 900
 
 
 def test_no_section_gives_defaults(tmp_path):
@@ -42,7 +43,7 @@ def test_unknown_key_rejected(tmp_path):
         load_sandbox_config(write(tmp_path, {"sandbox": {"memory_gb": 2}}))
 
 
-@pytest.mark.parametrize("field", ["cpus", "memory_mb", "pids_limit", "command_timeout_s", "max_output_bytes", "max_lifetime_s", "workspace_mb"])
+@pytest.mark.parametrize("field", ["cpus", "memory_mb", "pids_limit", "command_timeout_s", "max_output_bytes", "max_lifetime_s", "workspace_mb", "setup_timeout_s"])
 @pytest.mark.parametrize("value", [0, -1])
 def test_non_positive_rejected(tmp_path, field, value):
     with pytest.raises(ConfigError, match=field):

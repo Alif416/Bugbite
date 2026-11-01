@@ -72,6 +72,7 @@ def test_sandbox_codes_are_stable():
         "exec_failed",
         "sandbox_closed",
         "backstop_timeout",
+        "workspace_full",
     }
 
 

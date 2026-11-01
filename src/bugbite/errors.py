@@ -57,6 +57,7 @@ START_FAILED = "start_failed"
 EXEC_FAILED = "exec_failed"
 SANDBOX_CLOSED = "sandbox_closed"
 BACKSTOP_TIMEOUT = "backstop_timeout"
+WORKSPACE_FULL = "workspace_full"
 
 ALL_SANDBOX_CODES = frozenset(
     {
@@ -66,6 +67,7 @@ ALL_SANDBOX_CODES = frozenset(
         EXEC_FAILED,
         SANDBOX_CLOSED,
         BACKSTOP_TIMEOUT,
+        WORKSPACE_FULL,
     }
 )
 
