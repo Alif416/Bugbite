@@ -2,6 +2,9 @@
 
 from bugbite.adapter.base import ModelAdapter, estimate_tokens, validate_request
 from bugbite.adapter.claude import ClaudeAdapter
+from bugbite.adapter.cost import CallCost, compute_cost, format_usd, worst_case_cost
+from bugbite.adapter.ledger import CallRecord, CostLedger, ModelTotals
+from bugbite.adapter.metered import MeteredAdapter
 from bugbite.adapter.openai_compatible import OpenAICompatibleAdapter
 from bugbite.adapter.registry import (
     create_adapter,
@@ -34,6 +37,14 @@ from bugbite.adapter.types import (
 
 __all__ = [
     "Block",
+    "CallCost",
+    "CallRecord",
+    "CostLedger",
+    "MeteredAdapter",
+    "ModelTotals",
+    "compute_cost",
+    "format_usd",
+    "worst_case_cost",
     "ClaudeAdapter",
     "GenerationRequest",
     "GenerationResponse",
