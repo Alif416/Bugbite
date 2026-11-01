@@ -52,7 +52,7 @@ class ReadFile(Tool):
     def __init__(self, sandbox: Any) -> None:
         self.sandbox = sandbox
 
-    def _run(self, arguments: dict[str, Any]) -> ToolOutput:
+    def _run(self, arguments: dict[str, Any], time_limit_s: float | None = None) -> ToolOutput:
         rel, bad = _safe(arguments["path"])
         if bad:
             return bad
@@ -114,7 +114,7 @@ class ListDirectory(Tool):
     def __init__(self, sandbox: Any) -> None:
         self.sandbox = sandbox
 
-    def _run(self, arguments: dict[str, Any]) -> ToolOutput:
+    def _run(self, arguments: dict[str, Any], time_limit_s: float | None = None) -> ToolOutput:
         rel, bad = _safe(arguments.get("path", ""), allow_root=True)
         if bad:
             return bad
@@ -156,7 +156,7 @@ class SearchCode(Tool):
     def __init__(self, sandbox: Any) -> None:
         self.sandbox = sandbox
 
-    def _run(self, arguments: dict[str, Any]) -> ToolOutput:
+    def _run(self, arguments: dict[str, Any], time_limit_s: float | None = None) -> ToolOutput:
         pattern = arguments["pattern"]
         if len(pattern) > MAX_PATTERN_CHARS or "\n" in pattern or "\x00" in pattern:
             return error(f"The pattern must be one line of at most {MAX_PATTERN_CHARS} characters.")

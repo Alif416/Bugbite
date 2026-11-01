@@ -41,13 +41,14 @@ class Tool:
     def name(self) -> str:
         return self.definition.name
 
-    def run(self, arguments: Mapping[str, Any]) -> ToolOutput:
+    def run(self, arguments: Mapping[str, Any], *, time_limit_s: float | None = None) -> ToolOutput:
+        """`time_limit_s` is how long this call may take at most (the time left for the job); None means no limit."""
         problem = check_arguments(self.definition, arguments)
         if problem:
             return error(problem)
-        return self._run(dict(arguments))
+        return self._run(dict(arguments), time_limit_s)
 
-    def _run(self, arguments: dict[str, Any]) -> ToolOutput:  # pragma: no cover - abstract
+    def _run(self, arguments: dict[str, Any], time_limit_s: float | None = None) -> ToolOutput:  # pragma: no cover - abstract
         raise NotImplementedError
 
 

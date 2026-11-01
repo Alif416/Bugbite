@@ -1,17 +1,21 @@
 """The agent loop: ask the model, run the tools it asks for, show it the results, repeat (README FR5.3).
 
-This is the minimal version. It has no cost or time limits (P17), no loop detection (P18) and does not
-trim a long conversation. `max_steps` is the only limit and is required. "Finished" means the model stopped,
-not that the bug is fixed.
+It stops by itself at the job's hard limits (FR5.4): steps, cost and wall-clock time (see `Limits`). Loop
+detection (P18) and trimming a long conversation are not done yet. "Finished" means the model stopped, not
+that the bug is fixed.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from decimal import Decimal
+from typing import Any, Callable
 
 from bugbite.adapter.base import ModelAdapter
+from bugbite.adapter.cost import money_text, worst_case_cost
+from bugbite.adapter.ledger import CostLedger
+from bugbite.adapter.metered import MeteredAdapter
 from bugbite.adapter.text_action import INVALID_ACTION
 from bugbite.adapter.types import (
     ROLE_ASSISTANT,
@@ -27,15 +31,18 @@ from bugbite.adapter.types import (
 )
 from bugbite.errors import AdapterError, PrivacyError
 
+from .limits import Limits
 from .prompt import SYSTEM_PROMPT
 from .tools import ToolOutput
 from .types import (
+    COST_CAP,
     EMPTY_REPLY,
     FINISHED,
     MAX_STEPS,
     MODEL_ERROR,
     PRIVACY_BLOCKED,
     REFUSED,
+    TIME_CAP,
     TRUNCATED,
     UNEXPECTED_STOP,
     AgentResult,
@@ -49,9 +56,10 @@ from .types import (
 )
 
 log = logging.getLogger(__name__)
+NOT_RUN_TIME = "Not run: the time limit for this job was reached."
 
 
-def _run_call(tools: Any, call: Any) -> ToolRun:
+def _run_call(tools: Any, call: Any, time_limit_s: float | None) -> ToolRun:
     started = time.monotonic()
     if call.error is not None or call.name == INVALID_ACTION:
         text = call.error or "That reply was not a valid action."
@@ -59,7 +67,7 @@ def _run_call(tools: Any, call: Any) -> ToolRun:
     else:
         executed = True
         try:
-            output = tools.execute(call.name, call.arguments)
+            output = tools.execute(call.name, call.arguments, time_limit_s=time_limit_s)
             if not isinstance(output, ToolOutput):
                 output = ToolOutput(f"{call.name} returned something unexpected.", True)
         except Exception as exc:  # the registry never raises; this protects the loop from a custom one
@@ -69,28 +77,62 @@ def _run_call(tools: Any, call: Any) -> ToolRun:
     return ToolRun(call, output, time.monotonic() - started, executed)
 
 
+def _ledger_is_in_chain(adapter: Any, ledger: CostLedger) -> bool:
+    """True if some wrapper in the adapter chain records into this ledger."""
+    seen: set[int] = set()
+    while adapter is not None and id(adapter) not in seen:
+        seen.add(id(adapter))
+        if isinstance(adapter, MeteredAdapter) and adapter.ledger is ledger:
+            return True
+        adapter = getattr(adapter, "inner", None)
+    return False
+
+
 def run_agent(
     adapter: ModelAdapter,
     tools: Any,
     task: str,
     *,
-    max_steps: int,
+    limits: Limits,
+    ledger: CostLedger | None = None,
     system_prompt: str = SYSTEM_PROMPT,
     observer: Observer | None = None,
     max_output_tokens: int | None = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> AgentResult:
-    """Run the loop. `tools` needs `definitions()` and `execute(name, arguments)` (a `ToolRegistry`).
+    """Run the loop. `tools` needs `definitions()` and `execute(name, arguments, time_limit_s=...)`.
 
-    Returns an `AgentResult` for every ending, including model failures. Only mistakes in the arguments
-    raise. `KeyboardInterrupt` is not caught. Errors raised by the observer while it handles the
-    `FinishEvent` are logged but are not counted in the result.
+    A cost limit needs `ledger`, the ledger of a `MeteredAdapter` in the adapter chain (checked before
+    anything is sent): without a way to measure cost the cap cannot be kept. Returns an `AgentResult` for
+    every ending, including model failures and limits. Only mistakes in the arguments raise.
+    `KeyboardInterrupt` is not caught. Errors raised by the observer while it handles the `FinishEvent` are
+    logged but are not counted in the result.
     """
-    if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
-        raise ValueError(f"max_steps must be an integer of at least 1, got {max_steps!r}")
+    if not isinstance(limits, Limits):
+        raise ValueError("limits must be a Limits object")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("task must be a non-empty string")
     if not isinstance(system_prompt, str) or not system_prompt.strip():
         raise ValueError("system_prompt must be a non-empty string")
+    cost_cap: Decimal | None = limits.max_cost_usd
+    if cost_cap is not None:
+        if ledger is None:
+            raise ValueError("a cost limit needs the ledger of the metered adapter, so cost can be measured")
+        if not _ledger_is_in_chain(adapter, ledger):
+            raise ValueError("the ledger is not the one used by a MeteredAdapter in this adapter chain")
+    baseline = ledger.total_usd if ledger is not None else None
+    wall = limits.max_wall_clock_s
+    started = clock()
+    calls_per_step = max(1, int(getattr(adapter, "max_calls_per_step", 1)))
+
+    def elapsed() -> float:
+        return clock() - started
+
+    def time_left() -> float | None:
+        return None if wall is None else wall - elapsed()
+
+    def spent() -> Decimal | None:
+        return None if ledger is None else ledger.total_usd - baseline
 
     observer_errors = 0
 
@@ -110,7 +152,7 @@ def run_agent(
     steps: list[Step] = []
     usage = Usage()
 
-    def finish(status: str, final_text: str = "", error: Exception | None = None) -> AgentResult:
+    def finish(status: str, final_text: str = "", error: Exception | None = None, detail: str | None = None) -> AgentResult:
         result = AgentResult(
             status=status,
             final_text=final_text,
@@ -120,14 +162,41 @@ def run_agent(
             error_code=getattr(error, "code", None),
             error_message=getattr(error, "message", None),
             observer_errors=observer_errors,
+            cost_usd=spent(),
+            elapsed_s=elapsed(),
+            limit_detail=detail,
         )
         notify(FinishEvent(result))
         return result
 
-    for index in range(1, max_steps + 1):
+    def time_detail() -> str:
+        return f"Stopped: the time limit of {wall:g} s was reached ({elapsed():.1f} s used)."
+
+    def over_cap_detail() -> str:
+        return f"the job has spent ${money_text(spent())}, over its cost limit of ${money_text(cost_cap)}"
+
+    for index in range(1, limits.max_steps + 1):
+        left = time_left()
+        if left is not None and left <= 0:
+            return finish(TIME_CAP, detail=time_detail())
         request = GenerationRequest(
             messages=tuple(messages), system=system, tools=definitions, max_output_tokens=max_output_tokens
         )
+        if cost_cap is not None:
+            worst = calls_per_step * worst_case_cost(
+                adapter.config.pricing,
+                adapter.estimate_tokens(request),
+                adapter.resolve_max_output_tokens(request),
+                limits.cost_margin,
+            )
+            if spent() + worst > cost_cap:
+                return finish(
+                    COST_CAP,
+                    detail=(
+                        f"Stopped before step {index}: the next step could cost up to ${money_text(worst)} and only "
+                        f"${money_text(max(cost_cap - spent(), Decimal(0)))} of the ${money_text(cost_cap)} cost limit was left."
+                    ),
+                )
         try:
             response: GenerationResponse = adapter.generate(request)
         except PrivacyError as exc:
@@ -139,6 +208,7 @@ def run_agent(
             messages.append(Message(ROLE_ASSISTANT, response.blocks))
         notify(ModelCallEvent(index, response))
         calls = response.tool_calls
+        over = cost_cap is not None and spent() > cost_cap
 
         if response.stop_reason == STOP_REFUSAL:
             steps.append(Step(index, response))
@@ -149,16 +219,27 @@ def run_agent(
         if not calls:
             steps.append(Step(index, response))
             text = response.text.strip()
+            note = f"The last call cost more than estimated: {over_cap_detail()}." if over else None
             if response.stop_reason == STOP_OTHER:
-                return finish(UNEXPECTED_STOP, text)
-            return finish(FINISHED, text) if text else finish(EMPTY_REPLY)
-        if index == max_steps:
+                return finish(UNEXPECTED_STOP, text, detail=note)
+            return finish(FINISHED, text, detail=note) if text else finish(EMPTY_REPLY, detail=note)
+
+        left = time_left()
+        timed_out = left is not None and left <= 0
+        if not timed_out and over:
             steps.append(Step(index, response))
-            return finish(MAX_STEPS)
+            return finish(COST_CAP, detail=f"Stopped before running tools: {over_cap_detail()}; the estimate for the last call was too low.")
+        if not timed_out and index == limits.max_steps:
+            steps.append(Step(index, response))
+            return finish(MAX_STEPS, detail=f"Stopped: the limit of {limits.max_steps} steps was reached.")
 
         runs: list[ToolRun] = []
         for call in calls:
-            run = _run_call(tools, call)
+            left = time_left()
+            if left is not None and left <= 0:
+                run = ToolRun(call, ToolOutput(NOT_RUN_TIME, True), 0.0, executed=False)
+            else:
+                run = _run_call(tools, call, left)
             runs.append(run)
             notify(ToolCallEvent(index, run))
         steps.append(Step(index, response, tuple(runs)))
@@ -166,4 +247,7 @@ def run_agent(
             Message.tool_results(*(ToolResultBlock(r.call.id, r.output.text, r.output.is_error) for r in runs))
         )
 
-    return finish(MAX_STEPS)  # not reached: the last step always returns above
+    left = time_left()
+    if left is not None and left <= 0:  # the last step ended with the clock out; time wins over steps
+        return finish(TIME_CAP, detail=time_detail())
+    return finish(MAX_STEPS, detail=f"Stopped: the limit of {limits.max_steps} steps was reached.")

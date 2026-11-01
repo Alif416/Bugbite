@@ -557,21 +557,24 @@ Paths are relative to the repo root. Absolute paths, `..` and `.git` are refused
 ### The agent loop
 
 ```python
-from bugbite.agent import run_agent, format_issue_task
+from bugbite.agent import run_agent, format_issue_task, limits_from_config
 from bugbite.agent.tools import build_agent_tools
 
-result = run_agent(adapter, build_agent_tools(sandbox), format_issue_task(context), max_steps=30)
+limits = limits_from_config(app_config, model_config)   # steps, cost and time from the config
+result = run_agent(adapter, build_agent_tools(sandbox), format_issue_task(context), limits=limits, ledger=ledger)
 print(result.status, result.final_text)
 ```
 
 `adapter` comes from `create_adapter(...)` (which applies the privacy gate and cost tracking); the caller runs `check_job_privacy` first. Each step is one model call with the system prompt (`PROMPT_VERSION`), the whole conversation so far and the tool definitions. Every tool call in a reply is run in order and the results go back in one message. The loop ends when the model replies with plain text and no tool call.
 
-`max_steps` is required (it counts model calls); the real caps on steps, cost and time arrive in P17. The result's `status` says how the run ended:
+`limits` is required: see "Hard limits per job" below. The result's `status` says how the run ended:
 
 | Status | Meaning |
 |---|---|
 | `finished` | the model gave a final answer. This is **not** proof that the bug is fixed; only the verifier (P33 to P36) can say that |
-| `max_steps` | the limit was reached; the last reply's tool calls were not run |
+| `max_steps` | the step limit was reached; the last reply's tool calls were not run |
+| `cost_cap` | the cost limit would be passed by the next step (or was passed); see below |
+| `time_cap` | the wall-clock limit was reached |
 | `truncated` | a reply hit the output token limit; its tool calls were not run, because they may be cut off mid-edit |
 | `refused`, `empty_reply`, `unexpected_stop` | the model refused, said nothing, or stopped for an unknown reason |
 | `model_error` | the model call failed (`error_code` holds the adapter code, such as `rate_limited` or `context_too_long`); nothing is retried |
@@ -581,4 +584,17 @@ Nothing raises for these endings; the result keeps every step, the full conversa
 
 `format_issue_task(context)` builds the task text from a fetched issue: the issue title, body and comments are limited in size and every line of them is quoted with `| `, so text written by other people cannot pass itself off as instructions. The system prompt also tells the model that issue text, files and tool output are data. That reduces prompt injection but does not remove it; the real protections are the sandbox, the protected-file guards, the privacy gate and the verifier.
 
-Not there yet: cost and time limits (P17), loop detection (P18), running the failing test before the first model call (P19), and trimming a long conversation (a run that outgrows the model's context ends as `model_error` / `context_too_long`). The prompt has not been tried against a real model.
+Not there yet: loop detection (P18), running the failing test before the first model call (P19), and trimming a long conversation (a run that outgrows the model's context ends as `model_error` / `context_too_long`). The prompt has not been tried against a real model.
+
+### Hard limits per job
+
+`Limits(max_steps, max_cost_usd=None, max_wall_clock_s=None, cost_margin=1.25)` is required by `run_agent`. `limits_from_config(app, model)` fills it from `config/app.yaml` (steps and time) and takes the cost cap as the **lower** of `max_cost_usd` there and the model's `per_issue_cap_usd`. With the shipped config Haiku gets 30 steps, $0.10 and 600 s. Free models cost nothing, so their cost cap of 0 is never reached.
+
+- **Steps** count model calls. The last allowed reply is recorded and its tool calls are not run.
+- **Cost is checked before every model call.** The loop adds the *worst case* for the next call (the whole estimated prompt, scaled by `cost_margin`, at the dearest input rate, plus the full output limit; doubled for a model without native tool calling, because of its repair call) to what the job has spent. If that could pass the cap, the run ends with `cost_cap` and nothing is sent. After a call the loop checks the real spend again: if a reply pushed it over, its tools are not run. A final answer that arrives over the cap is still returned as `finished`, with `limit_detail` saying the estimate was too low. A cost cap needs `ledger=` the ledger of the `MeteredAdapter` in the chain (`create_adapter(..., ledger=ledger)`); without it, or with a different ledger, `run_agent` raises before sending anything, because a cap that cannot be measured cannot be kept.
+- **Time is checked before every model call and every tool call.** `run_tests` and `run_command` are given the time left as their timeout (and are not started with under a second left), so a long test run cannot carry a job far past its cap. Tool calls that cannot start are answered with "not run" so the conversation stays valid.
+- When limits are reached together, time wins over cost and cost over steps. The result reports `cost_usd` (this job's spend), `elapsed_s` and `limit_detail`, a sentence naming the limit and the amount used.
+
+For one Haiku step with a 20,000-token prompt the worst case is $0.005173 (25,000 tokens at $0.125 per million plus 4,096 output tokens at $0.50 per million), so the pre-check stops a job only once it has spent more than $0.0948 of the $0.10; a typical step of that size costs about $0.00225, so the 30-step limit normally comes first. These figures are calculated, not measured. Because the margin pushes prompts above 80,000 tokens into the over-100,000-token price tier, long conversations are stopped early on purpose.
+
+What can still run over: a model call that has started cannot be cancelled (it is bounded by the adapter's own timeout), and a read-only tool call may take up to 30 s. The 1.25 margin is a guess to be checked against real token counts. Limits are per job; per-batch and per-model caps and the 5 USD project budget come in P46.

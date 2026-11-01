@@ -27,12 +27,12 @@ class ToolRegistry:
     def definitions(self) -> tuple[ToolDefinition, ...]:
         return tuple(tool.definition for tool in self._tools.values())
 
-    def execute(self, name: str, arguments: Any) -> ToolOutput:
+    def execute(self, name: str, arguments: Any, *, time_limit_s: float | None = None) -> ToolOutput:
         tool = self._tools.get(name) if isinstance(name, str) else None
         if tool is None:
             return error(f"Unknown tool '{name}'. Available tools: {', '.join(self._tools)}.")
         try:
-            return tool.run(arguments)
+            return tool.run(arguments, time_limit_s=time_limit_s)
         except SandboxError as exc:
             return error(f"The sandbox could not run {name}: {exc.message}")
         except TimeoutError as exc:

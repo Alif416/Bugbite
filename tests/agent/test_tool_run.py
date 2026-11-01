@@ -70,10 +70,12 @@ def test_an_empty_ok_run():
 class Recorder:
     def __init__(self, result=None, exc=None):
         self.calls = []
+        self.timeouts = []
         self.result, self.exc = result or suite(tests={"t::a": case("passed")}, exit_code=0), exc
 
-    def __call__(self, sandbox, targets, *, extra_args=()):
+    def __call__(self, sandbox, targets, *, extra_args=(), timeout=None):
         self.calls.append((list(targets), list(extra_args)))
+        self.timeouts.append(timeout)
         if self.exc:
             raise self.exc
         return self.result
@@ -186,3 +188,69 @@ def test_the_sandbox_output_limit_is_noted():
 def test_run_command_rejects_bad_input(args):
     box = Scripted(done())
     assert RunCommand(box).run(args).is_error and box.calls == []
+
+
+# -- time limits handed down by the loop ------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("left, requested, expected", [(7.9, None, 7), (100, 3, 3), (500, None, 50), (1.0, None, 1), (49.99, 90, 49)])
+def test_run_command_never_runs_longer_than_the_job_has_left(left, requested, expected):
+    box = Scripted(done(stdout="x"))
+    args = {"command": "x"} | ({"timeout_s": requested} if requested else {})
+    RunCommand(box).run(args, time_limit_s=left)
+    assert box.calls[0][1]["timeout"] == expected
+
+
+@pytest.mark.parametrize("left", [0, 0.5, 0.99, -3])
+def test_run_command_is_not_started_with_under_a_second_left(left):
+    box = Scripted(done())
+    out = RunCommand(box).run({"command": "x"}, time_limit_s=left)
+    assert out.is_error and "less than a second" in out.text and box.calls == []
+
+
+def test_run_command_without_a_job_limit_keeps_its_own_limit():
+    box = Scripted(done(stdout="x"))
+    RunCommand(box).run({"command": "x"})
+    assert box.calls[0][1]["timeout"] == 50
+
+
+@pytest.mark.parametrize("left, expected", [(100, 100), (500, 300), (12.7, 12)])
+def test_run_tests_gets_the_smaller_of_its_limit_and_the_time_left(left, expected):
+    from types import SimpleNamespace
+
+    rec = Recorder()
+    RunTests(SimpleNamespace(config=SimpleNamespace(test_timeout_s=300)), rec).run({}, time_limit_s=left)
+    assert rec.timeouts == [expected]
+
+
+def test_run_tests_without_a_job_limit_passes_no_timeout():
+    rec = Recorder()
+    RunTests(None, rec).run({})
+    assert rec.timeouts == [None]  # the runner's own default applies
+
+
+@pytest.mark.parametrize("left", [0, 0.9])
+def test_run_tests_is_not_started_with_under_a_second_left(left):
+    rec = Recorder()
+    out = RunTests(None, rec).run({}, time_limit_s=left)
+    assert out.is_error and "less than a second" in out.text and rec.calls == []
+
+
+def test_the_registry_passes_the_time_limit_to_the_tool():
+    from bugbite.agent.tools import ToolRegistry
+
+    box = Scripted(done(stdout="x"))
+    registry = ToolRegistry([RunCommand(box)])
+    registry.execute("run_command", {"command": "x"}, time_limit_s=4.5)
+    assert box.calls[0][1]["timeout"] == 4
+    assert registry.execute("run_command", {"command": "x"}, time_limit_s=0.2).is_error
+
+
+def test_read_only_tools_ignore_the_time_limit(tmp_path):
+    from bugbite.agent.tools import ReadFile
+
+    root = tmp_path / "r"
+    root.mkdir()
+    box = LocalSandbox(root)
+    box.write("a.txt", "hello\n")
+    assert ReadFile(box).run({"path": "a.txt"}, time_limit_s=0.1).text == "     1| hello"
