@@ -736,3 +736,11 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The container is already isolated, but a model must not wander to `/workspace/.venv`, other workspace files, or git internals (which hold remote URLs and history noise), and clear rejection teaches it the right form.
 - **Alternatives:** Trust the container only (less clear errors, more noise in context).
 - **Consequences:** Symlinks inside the repo that point outside are tested in Docker; reads go through the same checks.
+
+## AD-087: Paths are resolved and listed by a small Python script run inside the sandbox, not by `find`
+
+- **Date:** 2026-11-01 · **Phase:** P14 · **Status:** Accepted (changes the plan, which said `find`)
+- **Decision:** `list_directory` and the path check of all three tools call one fixed Python script in the container (`python -c SCRIPT root relative mode limit`) that resolves the path with symlinks followed, refuses anything outside the repo or inside `.git`, and returns JSON. `search_code` still runs `grep`.
+- **Why:** A host-side check cannot see symlinks, and a repo can contain a symlink to `/etc`; only code inside the container can resolve it. `find -printf` is GNU-only, so the same tool would behave differently on the developer's Mac, where the unit tests run, and file names with newlines break line-based output. A script gives exact types, NUL-safe names and one code path in both places. The script is a constant, and model text reaches it only as separate arguments.
+- **Alternatives:** `find`/`realpath -e` shell commands (non-portable, parsing fragile); doing it all host-side (blind to symlinks).
+- **Consequences:** Relies on `python` being in the sandbox image (it is: the sandbox is built for Python repos). Unit tests run the same script on the host through a folder-backed fake sandbox; Docker tests prove the real behaviour.

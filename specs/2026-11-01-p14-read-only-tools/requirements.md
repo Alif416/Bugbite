@@ -57,3 +57,10 @@ See `specs/decisions.md` AD-082 to AD-086.
 
 - Large repos: `search_code` may be slow on very big trees; the timeout bounds it, and indexed search comes in the retrieval phases.
 - Whether tool output needs secret scrubbing before going to the model is a P17/P21 concern.
+
+## Findings from the build
+
+- The plan said `find` for listing. It became a small Python script run in the container that also resolves symlinks (AD-087), because only the container can see them and `find -printf` is not portable to the Mac the unit tests run on.
+- Unit tests use a folder-backed fake sandbox that really runs the script and `grep` on the host and refuses any other command, so "tools only run python and grep, as argument lists" is itself tested. The same behaviour is checked again in real Docker (symlinks to `/etc`, odd file names, binary files).
+- Mutation check: 10 breakages (path escape, `.git` visible, line cap, pattern before `--`, shell string, regex default, symlink containment, list cap, match cap, errors escaping the registry) are all caught.
+- Not measured: whether 200 lines, 20,000 characters and 50 matches are the right sizes for a real model; that needs real runs (P20).
