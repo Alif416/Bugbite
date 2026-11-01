@@ -216,7 +216,7 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 
 ## AD-026: Hardened container profile
 
-- **Date:** 2026-11-01 · **Phase:** P4 · **Status:** Accepted
+- **Date:** 2026-11-01 · **Phase:** P4 · **Status:** Accepted (tmpfs workspace superseded in part by AD-033)
 - **Decision:** Run as non-root `1000:1000`, drop all Linux capabilities, set `no-new-privileges`, mount no host paths and no Docker socket, pass no host environment variables, and use a size-limited tmpfs at `/workspace`.
 - **Why:** FR2.4 requires no access to the host or to secrets, and mission principle 4 says untrusted code never runs outside the sandbox. Each setting removes a known escape or leak path at no cost to the work we need. A tmpfs workspace gives a writable, bounded, disposable area without touching the host disk.
 - **Alternatives:** Bind-mounting a host workspace (easy to inspect, but exposes the host and file ownership issues); read-only root filesystem (blocks installs in P5).
@@ -247,3 +247,45 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Found while testing: with `init=True`, a container whose keep-alive command cannot run (for example an image with no `sleep`) is reported as started and then exits immediately. Without a check, `start()` would succeed, leak an exited container, and the first real command would fail with a confusing error. The probe also proves that `sh` and `timeout`, which every later command depends on, exist in the image (AD-027).
 - **Alternatives:** Trust `container.start()` (leaks containers, confusing failures); only check the status without a probe (does not prove `timeout` and `sh` work).
 - **Consequences:** `start()` takes about 0.2 s longer. Images without `sleep`, `sh`, or `timeout` are rejected up front, which is the intended behaviour.
+
+---
+
+## AD-030: Network on for setup only, then disconnected
+
+- **Date:** 2026-11-01 · **Phase:** P5 · **Status:** Accepted
+- **Decision:** The container starts with network access, runs `git clone` and `pip install`, and is then disconnected from every network (in a `finally`, so it happens even when setup fails). Tests and agent commands only ever run with no network.
+- **Why:** Cloning and installing require the internet (FR2.1, FR2.2), but the agent runs code it wrote and the repo's code, and must not reach the internet (FR2.4, mission principle 4). Cutting the network after setup keeps the strong guarantee for everything that matters. The owner chose this option.
+- **Alternatives:** Always on (weakens isolation); two containers, one for setup and one for running (strongest separation, but needs a shared disk volume and more moving parts).
+- **Consequences:** `pip install` runs the repo's build scripts with internet access. This is an accepted risk: the container holds no secrets, runs as non-root without capabilities, and is resource limited. While online it can also reach host services through Docker's bridge; closing that needs a custom firewalled network and is a recorded follow-up. Any later step that needs the network (such as installing something the agent decides it needs) is not possible.
+
+## AD-031: Bugbite's own sandbox image (python:3.11-slim + git), built on demand
+
+- **Date:** 2026-11-01 · **Phase:** P5 · **Status:** Accepted
+- **Decision:** Add `docker/sandbox.Dockerfile` based on `python:3.11-slim` with `git` and `ca-certificates`. The image is built locally the first time it is needed and tagged with a version suffix (`bugbite-sandbox:py3.11-1`) that is bumped when the Dockerfile changes. It becomes the default image.
+- **Why:** The stock image has no `git`, and the verifier will need real `git diff` for patch size and changed-file checks (FR6.5). Cloning inside the container also matches FR2.1. The owner chose this option over a tarball download (no history, no `git diff`) and over a larger image with compilers.
+- **Alternatives:** Stock image plus GitHub tarball (no git history); image with `build-essential` (about 200 MB larger, fewer setup failures on older repos, revisit at P48).
+- **Consequences:** First use needs network and a few minutes to build. Packages that must compile from source will fail setup until build tools are added. Changing the Dockerfile means bumping the tag.
+
+## AD-032: Heuristic dependency install with fallbacks; every step recorded; setup failures are results
+
+- **Date:** 2026-11-01 · **Phase:** P5 · **Status:** Accepted
+- **Decision:** Create a venv in `/workspace/.venv`, then install by a fixed plan: `pip install -e ".[test,tests,testing]"` falling back to `pip install -e .` for repos with a packaging file; `-r requirements.txt` for repos without one; optional test-requirements files best effort; `pytest` only if not already installed. Each step's command, exit code, duration, and last 2,000 characters of output are recorded in a `SetupResult` with a `failure_reason`. A failed setup is returned as a result, not raised.
+- **Why:** The README lists "environment setup fails on many repos" as a risk and wants setup failures logged as their own failure category (FR11). A fixed plan is predictable and testable offline (`plan_install` is a pure function), and recording each step makes failures explainable and labellable. Installing pytest only when missing avoids overriding versions a repo pins. Requesting several extras at once works because pip only warns about extras that do not exist. The owner chose this option over a minimal install.
+- **Alternatives:** Minimal install (more repos fail); asking the model to work out installation (costly and non-deterministic, and far outside P5); returning exceptions for setup failures (loses the structured detail the failure classifier needs).
+- **Consequences:** Repos needing unusual setup (system packages, other Python versions, custom install scripts) will fail with `install_failed`. The heuristic can be extended later without changing the result type.
+
+## AD-033: Disk-backed workspace volume with a soft size cap
+
+- **Date:** 2026-11-01 · **Phase:** P5 · **Status:** Accepted (supersedes the tmpfs part of AD-026 and redefines `workspace_mb` from AD-024)
+- **Decision:** `/workspace` becomes an anonymous Docker volume that is removed with the container. `workspace_mb` (default raised to 2048) is now a soft cap enforced by measuring usage with `du` after setup, with `check_workspace()` available to later phases. Exceeding it raises `workspace_full`.
+- **Why:** With a tmpfs, a cloned repo plus a venv counts against the 2 GB memory limit, so installs would cause out-of-memory kills (AD-026 flagged this for P5). A volume keeps the workspace on disk. Docker Desktop cannot enforce a hard quota on a volume, so a measured soft cap is the best available control. The owner chose this option.
+- **Alternatives:** Keep the tmpfs and raise memory (installs eat RAM, risk of OOM during pip); a host bind mount (breaks the no-host-mount rule).
+- **Consequences:** A runaway command can fill disk until the next check; the per-command timeout bounds this. Crashed jobs can leave volumes behind; pruning them is added to P7. Files written to the volume survive container restarts but not removal.
+
+## AD-034: Clone with git inside the container, shallow, validated ref, no credentials
+
+- **Date:** 2026-11-01 · **Phase:** P5 · **Status:** Accepted
+- **Decision:** Run `git clone --depth 1` inside the container using list-form arguments, with the URL built only from a validated `RepoRef`. A pinned `ref` is validated against a strict pattern and fetched with `git fetch --depth 1 origin <ref>` then checked out. Submodule recursion and the `ext` protocol are disabled. No token or credential enters the container, so private repos are not supported in P5.
+- **Why:** Shallow clones are fast and small, which suits the time and disk budget. Benchmark runs (P48) need an exact base commit, hence the ref path. List-form arguments and ref validation prevent argument injection (a ref beginning with `-` could be read as a git option). Keeping credentials out follows mission principle 4 and the README rule that keys are never exposed to the agent or container.
+- **Alternatives:** Full clones (slower, larger, rarely needed); cloning on the host and copying in (host runs git on untrusted data and needs file transfer); passing the token into the container for private repos (breaks the no-secrets rule).
+- **Consequences:** No history beyond the checked-out commit. Private repos need a separate design later.
