@@ -57,5 +57,5 @@ Branch: `2026-11-01-p04-sandbox-run-command`. See `requirements.md` for scope an
 
 1. Update `.github/workflows/ci.yml` only if needed. `ubuntu-latest` already has Docker, so the docker tests run there; pre-pull the image in a step to keep timing steady.
 2. Add a short "Docker tests" note to the README development setup (Docker must be running; how to run `-m docker` or skip them with `-m "not docker"`).
-3. Add AD-022 to AD-028 to `specs/decisions.md` (written with the specs). Tick P4 in `specs/roadmap.md`.
+3. Add AD-022 to AD-029 to `specs/decisions.md` (written with the specs). Tick P4 in `specs/roadmap.md`.
 4. Commit in small logical commits, then merge into `main` with `--no-ff` when asked.

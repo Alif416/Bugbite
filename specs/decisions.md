@@ -237,3 +237,13 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Contributors without Docker running can still run the suite, and a skipped test is visible rather than silently passing. Real isolation claims (non-root, no network, limits) can only be proven against a real container, so mocking them would prove nothing.
 - **Alternatives:** Mock Docker entirely (does not prove isolation); require Docker for all tests (breaks quick local runs).
 - **Consequences:** A green local run without Docker does not prove isolation; validation requires a run with Docker up, which this phase's checklist demands.
+
+---
+
+## AD-029: Verify the container is usable before `start()` returns
+
+- **Date:** 2026-11-01 · **Phase:** P4 · **Status:** Accepted
+- **Decision:** After the container starts, `start()` waits a moment, confirms the container is still running, and runs a trivial command (`true`) through the same `timeout` wrapper used for real commands. If any of this fails, the container is removed and `start()` raises `start_failed` with a short explanation.
+- **Why:** Found while testing: with `init=True`, a container whose keep-alive command cannot run (for example an image with no `sleep`) is reported as started and then exits immediately. Without a check, `start()` would succeed, leak an exited container, and the first real command would fail with a confusing error. The probe also proves that `sh` and `timeout`, which every later command depends on, exist in the image (AD-027).
+- **Alternatives:** Trust `container.start()` (leaks containers, confusing failures); only check the status without a probe (does not prove `timeout` and `sh` work).
+- **Consequences:** `start()` takes about 0.2 s longer. Images without `sleep`, `sh`, or `timeout` are rejected up front, which is the intended behaviour.

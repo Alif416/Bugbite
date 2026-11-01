@@ -402,6 +402,8 @@ uv run pytest                # run the test suite
 cp .env.example .env         # then fill in secrets (never commit .env)
 ```
 
-`GITHUB_TOKEN` is optional: public repos work without it (60 API requests per hour), and a token raises the limit and allows private repos. To run the opt-in live GitHub test: `BUGBITE_LIVE_TESTS=1 uv run pytest tests/github/test_live.py`.
+`GITHUB_TOKEN` is optional: public repos work without it (60 API requests per hour), and a token raises the limit and allows private repos. **Docker tests.** The sandbox tests need a running Docker daemon (Docker Desktop on macOS). If Docker is not reachable they are skipped with a visible reason. Run only them with `uv run pytest -m docker`, or skip them with `uv run pytest -m "not docker"`. The first run pulls the `python:3.11-slim` image (and `hello-world`) from the internet. Sandbox limits are configured in the `sandbox:` section of `config/app.yaml`.
+
+To run the opt-in live GitHub test: `BUGBITE_LIVE_TESTS=1 uv run pytest tests/github/test_live.py`.
 
 Config lives in `config/`: `app.yaml` (limits, default model) and `models.yaml` (one entry per model). Secrets are read only from environment variables.

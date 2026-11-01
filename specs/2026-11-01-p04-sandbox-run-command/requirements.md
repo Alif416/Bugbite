@@ -38,7 +38,7 @@ Provide the safe place where all untrusted code will run: start a resource-limit
 | Timeouts | In-container `timeout` plus a host backstop | Kills whole process groups and cannot hang the host (AD-027) |
 | Tests | Docker tests marked, skipped if no daemon | Default run works anywhere; CI runs them (AD-028) |
 
-See `specs/decisions.md` AD-022 to AD-028.
+See `specs/decisions.md` AD-022 to AD-029.
 
 ## Context
 
@@ -66,4 +66,4 @@ See `specs/decisions.md` AD-022 to AD-028.
 
 ## Decision log
 
-Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-022 to AD-028).
+Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-022 to AD-029).
