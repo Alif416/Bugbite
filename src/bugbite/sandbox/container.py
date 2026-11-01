@@ -2,7 +2,8 @@
 
 One container per job; commands run inside it with `exec`. Defaults: no
 network, non-root, no capabilities, no host mounts, no host environment,
-memory/CPU/process limits, and a size-limited memory-backed /workspace.
+memory/CPU/process limits, and a disk-backed /workspace volume with a soft
+size cap (see `check_workspace`).
 """
 
 from __future__ import annotations
@@ -14,18 +15,20 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 import docker
-from docker.errors import APIError, ImageNotFound, NotFound
+from docker.errors import APIError, NotFound
+from docker.types import Mount
 
 from bugbite.config import SandboxConfig
 from bugbite.errors import (
     BACKSTOP_TIMEOUT,
     DOCKER_UNAVAILABLE,
     EXEC_FAILED,
-    IMAGE_UNAVAILABLE,
     SANDBOX_CLOSED,
     START_FAILED,
+    WORKSPACE_FULL,
     SandboxError,
 )
+from bugbite.sandbox.image import ensure_image
 
 log = logging.getLogger(__name__)
 
@@ -117,7 +120,7 @@ class Sandbox:
         client = _connect(timeout=cfg.max_lifetime_s + 60)
         self._client = client
         try:
-            self._ensure_image(client)
+            ensure_image(client, cfg.image)
             mem = f"{cfg.memory_mb}m"
             container = client.containers.create(
                 cfg.image,
@@ -132,7 +135,7 @@ class Sandbox:
                 security_opt=["no-new-privileges"],
                 user=USER,
                 working_dir=WORKDIR,
-                tmpfs={WORKDIR: f"rw,exec,nosuid,nodev,size={cfg.workspace_mb}m,uid=1000,gid=1000,mode=0755"},
+                mounts=[Mount(target=WORKDIR, source=None, type="volume")],  # anonymous; removed with the container
                 init=True,
                 environment={},
             )
@@ -189,24 +192,6 @@ class Sandbox:
                 f"The image {self.config.image} cannot run commands (sh or timeout is missing or broken).",
             )
 
-    def _ensure_image(self, client: docker.DockerClient) -> None:
-        image = self.config.image
-        try:
-            client.images.get(image)
-            return
-        except ImageNotFound:
-            pass
-        except Exception as exc:
-            raise SandboxError(IMAGE_UNAVAILABLE, f"Could not check for image {image}: {_brief(exc)}") from None
-        log.info("pulling sandbox image %s", image)
-        try:
-            client.images.pull(image)
-        except Exception as exc:
-            raise SandboxError(
-                IMAGE_UNAVAILABLE,
-                f"Image {image} is not available locally and could not be pulled: {_brief(exc)}",
-            ) from None
-
     def _release_client(self) -> None:
         if self._client is not None:
             try:
@@ -234,6 +219,49 @@ class Sandbox:
             raise SandboxError(SANDBOX_CLOSED, "The sandbox is not running.")
         return self._client.api.inspect_container(self._container.id)
 
+    @property
+    def has_network(self) -> bool:
+        """True if Docker reports the container attached to any real network."""
+        networks = self.inspect()["NetworkSettings"]["Networks"] or {}
+        return any(name != "none" for name in networks)
+
+    def disconnect_network(self) -> None:
+        """Detach the container from every network. Safe to call more than once."""
+        info = self.inspect()
+        networks = info["NetworkSettings"]["Networks"] or {}
+        assert self._client is not None and self._container is not None
+        for name in list(networks):
+            if name == "none":
+                continue
+            try:
+                self._client.api.disconnect_container_from_network(self._container.id, name, force=True)
+            except Exception as exc:
+                raise SandboxError(EXEC_FAILED, f"Could not disconnect the sandbox from network {name}: {_brief(exc)}") from None
+        if self.has_network:
+            raise SandboxError(EXEC_FAILED, "The sandbox is still attached to a network after disconnecting.")
+
+    def workspace_usage_mb(self) -> int:
+        """Disk used under /workspace, in MB (rounded up)."""
+        result = self.run(["du", "-sm", WORKDIR], timeout=120)
+        try:
+            return int(result.stdout.split()[0])
+        except (IndexError, ValueError):
+            raise SandboxError(EXEC_FAILED, "Could not measure the workspace size.") from None
+
+    def check_workspace(self) -> int:
+        """Return usage in MB, or raise `workspace_full` if it exceeds `workspace_mb`.
+
+        Docker Desktop cannot enforce a hard disk quota on a volume, so this is a
+        soft cap that callers check after steps that write a lot.
+        """
+        used = self.workspace_usage_mb()
+        if used > self.config.workspace_mb:
+            raise SandboxError(
+                WORKSPACE_FULL,
+                f"The workspace uses {used} MB, over the {self.config.workspace_mb} MB limit.",
+            )
+        return used
+
     def __enter__(self) -> "Sandbox":
         return self.start()
 
@@ -242,10 +270,17 @@ class Sandbox:
 
     # -- running commands ------------------------------------------------
 
-    def run(self, command: str | Sequence[str], *, timeout: float | None = None) -> CommandResult:
+    def run(
+        self,
+        command: str | Sequence[str],
+        *,
+        timeout: float | None = None,
+        workdir: str = WORKDIR,
+    ) -> CommandResult:
         """Run a command in the container.
 
         A string runs through `sh -c`; a list runs directly with no shell.
+        `workdir` is the directory inside the container to run in.
         """
         if self._container is None or self._client is None:
             raise SandboxError(SANDBOX_CLOSED, "The sandbox is not running (start it, or use it in a 'with' block).")
@@ -260,7 +295,7 @@ class Sandbox:
         api = self._client.api
         try:
             exec_id = api.exec_create(
-                self._container.id, wrapped, stdout=True, stderr=True, workdir=WORKDIR, user=USER
+                self._container.id, wrapped, stdout=True, stderr=True, workdir=workdir, user=USER
             )["Id"]
             stream = api.exec_start(exec_id, stream=True, demux=True)
         except Exception as exc:
