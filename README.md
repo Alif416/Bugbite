@@ -504,3 +504,26 @@ A model configured with `native_tool_calling: false` (most small local and free 
 The wrapper finds the action in the reply (prose and code fences around it are ignored), checks the arguments against the tool's JSON Schema, and returns an ordinary tool call or text answer. A reply with no action, two different actions, broken JSON, an unknown tool, or invalid arguments gets **one repair attempt** that tells the model exactly what was wrong. If the repair also fails the step has failed: the response is a tool call named `invalid_action` with empty arguments and an `error`; the loop answers it with that error as the tool result and counts a failed step. Provider errors and refusals are never repaired.
 
 For cost and failure analysis: every model call, including a repair, is its own ledger entry (create the adapter with a ledger), the response carries the summed tokens and time for the step, and `adapter.stats` gives the number of tool steps, repaired steps, and failed steps. `adapter.max_calls_per_step` is 2. The method costs extra tokens (the instruction block on every call, longer history), which shows up in the model comparison; the integration method is reported per model as `text_action`. It has not yet been tried against a real model.
+
+### Privacy: private code and models
+
+Private code may only go to a model whose `allow_private_code` is `true` in `config/models.yaml`. There is no flag, environment variable or argument that overrides this. Today `local-free` (runs on your machine) is `true`; `haiku` and `groq-free` are `false`. Whether a provider may see private code is your decision, made after reading its current data terms; change it by editing that one line.
+
+**How a job's code is classified** (`bugbite.privacy.classify`), using the repository name and visibility GitHub returned:
+
+| Class | When | Goes to |
+|---|---|---|
+| `sandbox` | the repo is in `sandbox_repos` in `config/app.yaml` (your demo and test repos; case-insensitive, whole `owner/name`) | any model |
+| `public` | GitHub says the repo is public | any model |
+| `private` | everything else, including unknown visibility | only models with `allow_private_code: true` |
+
+`sandbox_repos` is unrelated to the Docker sandbox. It starts empty.
+
+**Two locks, both always on:**
+
+1. `check_job_privacy(model, context, sandbox_repos, models)` runs when a job starts. If the chosen model may not see the data it raises `PrivacyError` (`private_code_blocked`) before any work, names the model and repo, and lists the models that would be allowed. It never switches models for you.
+2. `create_adapter(model, ..., sensitivity=...)` puts a `PrivacyGuardAdapter` directly around the real provider adapter, so every call is checked again just before the network. If you do not pass a sensitivity it assumes `private`. A refused call is not a model call: nothing is sent, nothing is billed or retried.
+
+**For entry points (CLI, API, GitHub trigger):** fetch the issue, call `check_job_privacy`, then pass the returned sensitivity to `create_adapter`. Build adapters only through `create_adapter`; a test fails if code outside `src/bugbite/adapter/` imports a concrete adapter.
+
+Not covered yet: private code stored in traces, recordings or the dashboard (later phases), and a remote endpoint wrongly marked `allow_private_code: true`.

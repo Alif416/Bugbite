@@ -66,3 +66,10 @@ See `specs/decisions.md` AD-076 to AD-081.
 ## Decision log
 
 Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-076 to AD-081).
+
+## Findings from the build
+
+- The first mutation check was invalid: under zsh an unquoted `$T` was not word-split, so pytest ran no tests and every "breakage" looked uncaught-but-clean. It was redone with a script that asserts the baseline passes and flags any run that does not report a failure. All 8 breakages are caught (unknown visibility as public, guard disabled, case-sensitive sandbox match, `PUBLIC` default, guard above the text-action wrapper, refusal recorded as a model call, job-start check ignoring the sandbox list, policy letting private data through).
+- `create_adapter` now returns a guard-wrapped adapter, so six earlier registry tests that asserted the concrete type were changed to inspect the wrapper chain (`tests/adapter/chain_helpers.py`).
+- Full suite: 1505 passed and 106 skipped with Docker unreachable; 1605 passed and 6 skipped with Docker running. No labelled containers or volumes left behind.
+- Still unverified against reality: nothing here talks to a real provider; the rule is proven with scripted adapters and mock transports.
