@@ -1,6 +1,6 @@
 # Plan: Input Validation (Roadmap P2)
 
-Branch: `2026-11-01-input-validation`. See `requirements.md` for scope and decisions, `validation.md` for merge criteria. Decisions are logged in `specs/decisions.md` (AD-011 onward).
+Branch: `2026-11-01-p02-input-validation`. See `requirements.md` for scope and decisions, `validation.md` for merge criteria. Decisions are logged in `specs/decisions.md` (AD-011 onward).
 
 ## 1. Error type
 

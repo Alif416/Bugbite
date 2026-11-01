@@ -1,6 +1,6 @@
 # Plan: Project Skeleton (Roadmap P1)
 
-Branch: `2026-11-01-project-skeleton`. See `requirements.md` for scope and decisions, `validation.md` for merge criteria.
+Branch: `2026-11-01-p01-project-skeleton`. See `requirements.md` for scope and decisions, `validation.md` for merge criteria.
 
 ## 1. Repository tooling
 

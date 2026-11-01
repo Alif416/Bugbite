@@ -30,7 +30,7 @@ The work can be merged when every item below is true.
 ## Docs and process
 
 - [x] P1 is ticked in `specs/roadmap.md`.
-- [x] Commits are small and logical on branch `2026-11-01-project-skeleton`.
+- [x] Commits are small and logical on branch `2026-11-01-p01-project-skeleton`.
 - [x] No files outside this phase's scope were changed (no Docker, FastAPI, lint config).
 
 ## Definition of done

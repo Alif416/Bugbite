@@ -122,10 +122,10 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 
 ---
 
-## AD-015: Include the phase number in feature folder and branch names from P3 on
+## AD-015: Include the phase number in feature folder and branch names
 
 - **Date:** 2026-11-01 · **Phase:** process · **Status:** Accepted
-- **Decision:** Feature folders and branches are named `YYYY-MM-DD-pNN-feature-name` (for example `2026-11-01-p03-issue-fetch`). P1 and P2 keep their existing names (`2026-11-01-project-skeleton`, `2026-11-01-input-validation`).
-- **Why:** The date segment ends in the day of the month, so `2026-11-01-input-validation` looked like "phase 01" and the order was unclear when several phases land on one day. Putting the roadmap phase number in the name makes order and the link to `specs/roadmap.md` obvious. The owner chose this option.
-- **Alternatives:** Date only (ambiguous on same-day phases); renaming P1 and P2 (rename commit on `main`, stale references in merge messages and specs, for little benefit).
-- **Consequences:** Names are slightly longer. The first two folders do not follow the new pattern; this entry explains why.
+- **Decision:** Feature folders and branches are named `YYYY-MM-DD-pNN-feature-name` (for example `2026-11-01-p03-issue-fetch`). P1 and P2 were renamed to match: `2026-11-01-p01-project-skeleton` and `2026-11-01-p02-input-validation`.
+- **Why:** The date segment ends in the day of the month, so `2026-11-01-input-validation` looked like "phase 01" and the order was unclear when several phases land on one day. Putting the roadmap phase number in the name makes order and the link to `specs/roadmap.md` obvious. The owner chose this option and asked for P1 and P2 to be renamed too.
+- **Alternatives:** Date only (ambiguous on same-day phases); leaving P1 and P2 unrenamed (inconsistent names).
+- **Consequences:** Names are slightly longer. Merge commit messages for P1 and P2 (`a165f6e`, `aa94a03`) still show the old branch names because history is not rewritten. AD-010 describes the older pattern; this entry supersedes its naming part only (merge strategy is unchanged).

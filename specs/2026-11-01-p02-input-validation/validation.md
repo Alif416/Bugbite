@@ -35,7 +35,7 @@ The work can be merged when every item below is true.
 
 - [x] `specs/decisions.md` has AD-011 to AD-014 with reasons.
 - [x] `specs/roadmap.md` has P2 ticked and P3 now includes the Python-only repo rejection.
-- [x] Commits are small and logical on branch `2026-11-01-input-validation`.
+- [x] Commits are small and logical on branch `2026-11-01-p02-input-validation`.
 - [x] No files outside this phase's scope were changed (no CLI, API, or network code).
 
 ## Definition of done
