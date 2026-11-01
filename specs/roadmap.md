@@ -8,10 +8,10 @@ FR numbers refer to README.md section 5.
 
 - [x] **P1. Project skeleton** — repo layout, module folders, pytest runs, config loading, CI stub.
 - [x] **P2. Input validation** — parse issue URL + repo URL offline; reject non-GitHub and malformed input with clear messages (FR1.1). Python-only check moved to P3 (AD-011).
-- [ ] **P3. Issue fetch** — title, body, labels, comments via GitHub API; public/token access check; reject non-Python repos (FR1.2, FR1.3, FR1.4).
+- [x] **P3. Issue fetch** — title, body, labels, comments via GitHub API; public/token access check; reject non-Python repos (FR1.2, FR1.3, FR1.4).
 - [ ] **P4. Sandbox: run a command** — start a limited Docker container, run one command, clean up (FR2.1, FR2.3, FR2.4, FR2.5).
 - [ ] **P5. Sandbox: clone + install** — clone repo, auto-install from requirements/setup/pyproject (FR2.2).
-- [ ] **P6. Sandbox: run tests** — run pytest in the container, parse pass/fail/skip per test.
+- [ ] **P6. Sandbox: run tests** — run pytest in the container, parse pass/fail/skip per test. Reject repos with no tests (moved from P3, AD-019).
 - [ ] **P7. Orphan-proof cleanup** — crashed jobs leave no containers; test it (reliability).
 
 ## Model adapter
