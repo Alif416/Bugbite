@@ -13,7 +13,7 @@ Branch: `2026-11-01-p03-issue-fetch`. See `requirements.md` for scope and decisi
 
 1. Create `src/bugbite/github/models.py` with frozen dataclasses:
    - `RepoInfo(full_name, private, language, default_branch, archived, fork, html_url)`
-   - `IssueData(number, title, body, labels, state, author, html_url, body_truncated)`
+   - `IssueData(number, title, body, labels, state, author, html_url, truncated)` (`truncated` covers title or body)
    - `CommentData(author, body, created_at, truncated)`
    - `JobContext(repo, issue, comments, comments_truncated)`
 2. Missing or null fields from the API (such as an empty issue body) become safe defaults, never `None` where text is expected.
