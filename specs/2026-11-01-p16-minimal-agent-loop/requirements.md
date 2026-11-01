@@ -67,3 +67,13 @@ See `specs/decisions.md` AD-092 to AD-096.
 - The system prompt is a first version. Whether it works with a real model, and how it should differ for small models, is only learned in P20.
 - The loop does not check that the answer is true. "Finished" means the model stopped, not that the bug is fixed; only the verifier (P33 to P36) can say that.
 - `max_steps` counts model calls, not tool calls.
+
+## Findings from the build
+
+- Issue text is quoted line by line (`| ` prefix) instead of wrapped in begin/end markers: hostile text can contain any marker, but it cannot produce a line without the prefix. A test feeds an issue that imitates the instruction lines and checks every such line is quoted.
+- A tool call that the adapter could not parse (`error` set) is answered with the error and not run, for native adapters as well as for the text-action `invalid_action`.
+- Empty tool output is replaced with "(no output)" so the model never sees an empty result.
+- The scripted adapter only raises `AdapterError` objects placed in the script, so the privacy-refusal test raises `PrivacyError` from a callable step.
+- Errors raised by the observer while it handles the final `FinishEvent` are logged but cannot be counted in the (already built, immutable) result; documented in the docstring.
+- Mutation check: 18 breakages (result order, a call without a result, truncated calls run, `max_steps` off by one, model error raised, invalid action executed, observer error escaping, usage not summed, privacy shown as a model error, assistant reply dropped, refusal running tools, empty output, raising tool, unquoted issue text, no finish event, tools or system prompt not passed, `max_steps=True`) are all caught.
+- Not measured: whether the system prompt works with a real model, and how it should differ for small models (P20). The prompt is about 1,500 characters, roughly 370 tokens by the 4-characters-per-token estimate, paid on every step.
