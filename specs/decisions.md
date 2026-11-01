@@ -129,3 +129,53 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The date segment ends in the day of the month, so `2026-11-01-input-validation` looked like "phase 01" and the order was unclear when several phases land on one day. Putting the roadmap phase number in the name makes order and the link to `specs/roadmap.md` obvious. The owner chose this option and asked for P1 and P2 to be renamed too.
 - **Alternatives:** Date only (ambiguous on same-day phases); leaving P1 and P2 unrenamed (inconsistent names).
 - **Consequences:** Names are slightly longer. Merge commit messages for P1 and P2 (`a165f6e`, `aa94a03`) still show the old branch names because history is not rewritten. AD-010 describes the older pattern; this entry supersedes its naming part only (merge strategy is unchanged).
+
+---
+
+## AD-016: `httpx` with direct REST calls for the GitHub client
+
+- **Date:** 2026-11-01 · **Phase:** P3 · **Status:** Accepted
+- **Decision:** Talk to GitHub with `httpx` and the REST API directly, in our own small `GitHubClient`.
+- **Why:** The client must be easy to test offline (httpx has a mock transport), give full control over timeouts, pagination, headers and error mapping, and stay small. Rate-limit and error details matter for this project (budget and resume logic come later) and a wrapper library would hide them. The owner chose this option. It adds one dependency.
+- **Alternatives:** PyGithub (heavier, harder to mock, hides rate-limit details); stdlib `urllib` (no dependency, but more hand-written code for pagination, errors and timeouts).
+- **Consequences:** We own pagination and error mapping. The same client will grow in P41 onward (branches, PRs, comments).
+
+## AD-017: GitHub token is optional and always passed in by the caller
+
+- **Date:** 2026-11-01 · **Phase:** P3 · **Status:** Accepted
+- **Decision:** `GitHubClient` accepts an optional token and never reads the environment. Without a token it makes anonymous requests. A private repo with no token gives a clear message.
+- **Why:** Public repos work anonymously, so quick tries do not need a token. A token raises rate limits and allows private repos. Having the caller pass the token keeps secret handling at the edges (mission principle 4) and stops tests from picking up a real token by accident. The owner chose this option.
+- **Alternatives:** Token required (blocks easy public use); client reading `GITHUB_TOKEN` itself (hidden dependency on environment, risk in tests).
+- **Consequences:** Entry points (CLI, API) must read `GITHUB_TOKEN` via `get_secret` and pass it in. Anonymous use is limited to 60 requests per hour.
+
+## AD-018: Decide "is Python" from GitHub's primary language
+
+- **Date:** 2026-11-01 · **Phase:** P3 · **Status:** Accepted
+- **Decision:** A repo is accepted when GitHub's `language` field equals `Python`. Any other value, or none, raises `NOT_PYTHON` and names what was detected.
+- **Why:** One call we already make, no extra requests, simple to explain (FR1.4). The owner chose this option.
+- **Alternatives:** Language share threshold (one more call, more accurate on mixed repos); checking for `pyproject.toml`, `setup.py`, or `requirements.txt` (closer to what the sandbox needs, more calls).
+- **Consequences:** Mixed-language repos where Python is not the largest share are rejected, and repos mislabelled by GitHub can pass. Such cases will show up in failure analysis. Revisit if it causes real misses.
+
+## AD-019: Test-suite detection moves to the sandbox phases
+
+- **Date:** 2026-11-01 · **Phase:** P3 · **Status:** Accepted
+- **Decision:** P3 does not check that the repo has tests. Rejecting repos with no tests is added to P6, when pytest is actually run in the container.
+- **Why:** Guessing from file names through the API is slow and can be wrong. Running the real test command after cloning is the reliable signal. Keeps P3 small. The owner chose this option.
+- **Alternatives:** Light API check for a `tests/` directory or `test_*.py` files (extra calls, false positives and negatives).
+- **Consequences:** A Python repo with no tests passes P3 and is rejected later. Nothing expensive happens before P6, so this is cheap.
+
+## AD-020: Split user-fixable errors from provider errors; no retries yet
+
+- **Date:** 2026-11-01 · **Phase:** P3 · **Status:** Accepted
+- **Decision:** User-fixable problems (repo not found, not Python, issue not found, pull request given as issue) are `InputError` with new codes. Provider or network problems (rate limit, auth failure, server error, timeout, bad response) are a separate `GitHubAPIError` with its own stable codes. P3 raises immediately and does not retry or sleep.
+- **Why:** The CLI and dashboard need to tell "fix your input" from "try again later" and show different messages. Retrying and backoff belong with the queue and resume work (README FR14.5, roadmap P51), where they can be designed once for all providers. Keeping them out keeps P3 small.
+- **Alternatives:** One error type for everything (callers parse messages); adding retries now (duplicates later work and complicates tests).
+- **Consequences:** A transient 5xx fails the job until retries exist. Acceptable while jobs are run by hand.
+
+## AD-021: Cap comments and text size, and flag truncation
+
+- **Date:** 2026-11-01 · **Phase:** P3 · **Status:** Accepted
+- **Decision:** Fetch at most 50 comments (default, configurable) and cut each text field to 20,000 characters. Truncation is recorded with a flag on the data.
+- **Why:** Context sent to the model must stay small (FR3.4) and cost is capped (mission principle 6). Long threads and huge bodies are also a vector for untrusted text. Flags keep the cut visible, so the agent and PR evidence can say "input was truncated" instead of hiding it.
+- **Alternatives:** Fetch everything and trim later (wasted calls and memory); silent truncation (hides information, breaks honesty).
+- **Consequences:** Very long threads lose later comments. The cap can be tuned per run from config later.
