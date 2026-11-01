@@ -13,7 +13,7 @@ from bugbite.config import (
 ROOT = Path(__file__).resolve().parent.parent
 
 VALID_MODEL = {
-    "provider": "p",
+    "provider": "openai_compatible",
     "base_url": "http://x",
     "model_name": "m",
     "context_window": 1000,
@@ -47,7 +47,7 @@ def test_valid_models_load_with_all_fields(tmp_path):
     models = load_models_config(models_file(tmp_path))
     m = models["a"]
     assert m.name == "a"
-    assert m.provider == "p"
+    assert m.provider == "openai_compatible"
     assert m.context_window == 1000
     assert m.native_tool_calling is True
     assert m.price_per_output_token == 0.2
