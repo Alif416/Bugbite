@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 import docker
-from docker.errors import APIError, NotFound
+from docker.errors import NotFound
 from docker.types import Mount
 
 from bugbite.config import SandboxConfig
@@ -31,18 +31,34 @@ from bugbite.errors import (
     WORKSPACE_FULL,
     SandboxError,
 )
+from bugbite.sandbox.cleanup import (
+    LABEL,
+    Owner,
+    brief as _brief,
+    current_owner,
+    make_labels,
+    register_sandbox,
+    sweep_orphans,
+    unregister_sandbox,
+)
 from bugbite.sandbox.image import ensure_image
 
 log = logging.getLogger(__name__)
 
-LABEL = "bugbite.sandbox"
-JOB_LABEL = "bugbite.job"
 WORKDIR = "/workspace"
 USER = "1000:1000"
 BACKSTOP_GRACE_S = 15
 _KILL_AFTER_S = 2
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 MAX_READ_BYTES = 64 * 1024 * 1024
+
+
+def _is_container_gone(exc: BaseException) -> bool:
+    """Docker says "No such container" when a sandbox expired or was removed."""
+    return isinstance(exc, NotFound) and "no such container" in str(exc).lower()
+
+
+_GONE_MESSAGE = "The sandbox no longer exists: it reached its maximum lifetime or was removed."
 
 
 def _check_workspace_path(path: str) -> str:
@@ -112,10 +128,12 @@ class Sandbox:
         *,
         network: bool = False,
         job_id: str | None = None,
+        owner: Owner | None = None,
     ) -> None:
         self.config = config or SandboxConfig()
         self.network = network
         self.job_id = job_id or ""
+        self.owner = owner or current_owner()  # tests may pass another owner to simulate a crashed process
         self._client: docker.DockerClient | None = None
         self._container: Any = None
         self._closed = False
@@ -133,12 +151,15 @@ class Sandbox:
         client = _connect(timeout=cfg.max_lifetime_s + 60)
         self._client = client
         try:
+            self._sweep_first(client)
             ensure_image(client, cfg.image)
             mem = f"{cfg.memory_mb}m"
+            labels = make_labels(self.job_id, self.owner, time.time(), cfg.max_lifetime_s)
             container = client.containers.create(
                 cfg.image,
                 command=["sleep", str(cfg.max_lifetime_s)],
-                labels={LABEL: "1", JOB_LABEL: self.job_id},
+                labels=labels,
+                auto_remove=True,  # Docker deletes the container and its volume when it exits
                 network_mode="bridge" if self.network else "none",
                 nano_cpus=int(cfg.cpus * 1_000_000_000),
                 mem_limit=mem,
@@ -148,7 +169,7 @@ class Sandbox:
                 security_opt=["no-new-privileges"],
                 user=USER,
                 working_dir=WORKDIR,
-                mounts=[Mount(target=WORKDIR, source=None, type="volume")],  # anonymous; removed with the container
+                mounts=[Mount(target=WORKDIR, source=None, type="volume", labels=labels)],  # anonymous, labelled
                 init=True,
                 environment={},
             )
@@ -159,6 +180,7 @@ class Sandbox:
             self._release_client()
             raise SandboxError(START_FAILED, f"Could not create the sandbox container: {_brief(exc)}") from None
         self._container = container
+        register_sandbox(self)
         try:
             container.start()
         except Exception as exc:
@@ -171,6 +193,23 @@ class Sandbox:
             raise
         return self
 
+    @staticmethod
+    def _sweep_first(client: docker.DockerClient) -> None:
+        """Remove orphans from crashed jobs before starting. Never blocks the start."""
+        try:
+            report = sweep_orphans(client)
+        except Exception as exc:
+            log.warning("orphan sweep failed (continuing): %s", _brief(exc))
+            return
+        if report.containers_removed or report.volumes_removed:
+            log.info(
+                "removed %d orphaned sandbox container(s) and %d volume(s)",
+                len(report.containers_removed),
+                len(report.volumes_removed),
+            )
+        for error in report.errors:
+            log.warning("orphan sweep problem: %s", error)
+
     def _check_ready(self) -> None:
         """Confirm the container stayed up and `sh` and `timeout` work inside it.
 
@@ -179,17 +218,22 @@ class Sandbox:
         """
         container = self._container
         time.sleep(0.1)  # let a doomed container exit before we look
+        gone = False
         try:
             container.reload()
             running = container.status == "running"
+        except NotFound:
+            running, gone = False, True  # Docker already removed it (auto_remove)
         except Exception as exc:
             raise SandboxError(START_FAILED, f"Could not check the sandbox container: {_brief(exc)}") from None
         if not running:
-            try:
-                tail = container.logs(tail=5).decode("utf-8", errors="replace")
-            except Exception:
-                tail = ""
-            detail = f" Output: {' '.join(tail.split())[:200]}" if tail.strip() else ""
+            detail = " Docker removed it at once, so its output is not available." if gone else ""
+            if not gone:
+                try:
+                    tail = container.logs(tail=5).decode("utf-8", errors="replace")
+                except Exception:
+                    tail = ""
+                detail = f" Output: {' '.join(tail.split())[:200]}" if tail.strip() else ""
             raise SandboxError(
                 START_FAILED,
                 f"The sandbox container exited right after starting; the image {self.config.image} "
@@ -217,6 +261,7 @@ class Sandbox:
         """Remove the container. Safe to call more than once."""
         container, self._container = self._container, None
         self._closed = True
+        unregister_sandbox(self)
         if container is not None:
             try:
                 container.remove(force=True, v=True)
@@ -244,6 +289,9 @@ class Sandbox:
         try:
             ok = self._container.put_archive(directory, buffer.getvalue())
         except Exception as exc:
+            if _is_container_gone(exc):
+                self.close()
+                raise SandboxError(SANDBOX_CLOSED, _GONE_MESSAGE) from None
             raise SandboxError(EXEC_FAILED, f"Could not write {path}: {_brief(exc)}") from None
         if not ok:
             raise SandboxError(EXEC_FAILED, f"Could not write {path}.")
@@ -255,7 +303,10 @@ class Sandbox:
             raise SandboxError(SANDBOX_CLOSED, "The sandbox is not running.")
         try:
             stream, stat = self._container.get_archive(path)
-        except NotFound:
+        except NotFound as exc:
+            if _is_container_gone(exc):
+                self.close()
+                raise SandboxError(SANDBOX_CLOSED, _GONE_MESSAGE) from None
             return None
         except Exception as exc:
             raise SandboxError(EXEC_FAILED, f"Could not read {path}: {_brief(exc)}") from None
@@ -273,7 +324,11 @@ class Sandbox:
         """Docker's description of the running container (for tests and diagnostics)."""
         if self._container is None or self._client is None:
             raise SandboxError(SANDBOX_CLOSED, "The sandbox is not running.")
-        return self._client.api.inspect_container(self._container.id)
+        try:
+            return self._client.api.inspect_container(self._container.id)
+        except NotFound:
+            self.close()
+            raise SandboxError(SANDBOX_CLOSED, _GONE_MESSAGE) from None
 
     @property
     def has_network(self) -> bool:
@@ -365,6 +420,9 @@ class Sandbox:
             )["Id"]
             stream = api.exec_start(exec_id, stream=True, demux=True)
         except Exception as exc:
+            if _is_container_gone(exc):
+                self.close()
+                raise SandboxError(SANDBOX_CLOSED, _GONE_MESSAGE) from None
             raise SandboxError(EXEC_FAILED, f"Could not run the command in the sandbox: {_brief(exc)}") from None
 
         out = _Capture(self.config.max_output_bytes)
@@ -411,13 +469,3 @@ class Sandbox:
             duration_s=duration,
             truncated=out.truncated or err.truncated,
         )
-
-
-def _brief(exc: BaseException) -> str:
-    """Short, single-line description of a Docker/SDK error (never includes env or secrets)."""
-    if isinstance(exc, APIError) and exc.explanation:
-        text = str(exc.explanation)
-    else:
-        text = str(exc) or type(exc).__name__
-    text = " ".join(text.split())
-    return text if len(text) <= 300 else text[:297] + "..."

@@ -1,5 +1,13 @@
 """Docker sandbox: clone, install, and run code and tests in isolation."""
 
+from bugbite.sandbox.cleanup import (
+    Owner,
+    SweepReport,
+    close_all_sandboxes,
+    install_signal_cleanup,
+    is_orphan,
+    sweep_orphans,
+)
 from bugbite.sandbox.container import CommandResult, Sandbox, list_sandbox_containers
 from bugbite.sandbox.image import SANDBOX_IMAGE
 from bugbite.sandbox.testrun import (
@@ -26,6 +34,12 @@ from bugbite.sandbox.setup import (
 )
 
 __all__ = [
+    "Owner",
+    "SweepReport",
+    "close_all_sandboxes",
+    "install_signal_cleanup",
+    "is_orphan",
+    "sweep_orphans",
     "CaseResult",
     "CollectionError",
     "SuiteRun",
