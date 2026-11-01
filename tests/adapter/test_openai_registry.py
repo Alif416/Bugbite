@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from chain_helpers import names, raw
 from openai_helpers import KEY
 
 from bugbite.adapter import OpenAICompatibleAdapter, TextActionAdapter, create_adapter, registered_providers
@@ -16,7 +17,7 @@ def test_importing_the_package_registers_the_provider():
 
 def test_create_adapter_builds_it_with_the_key():
     adapter = create_adapter(MODELS["groq-free"], api_key=KEY)
-    assert isinstance(adapter, OpenAICompatibleAdapter) and adapter.name == "groq-free"
+    assert isinstance(raw(adapter), OpenAICompatibleAdapter) and adapter.name == "groq-free"
     assert KEY not in repr(adapter)
     adapter.close()
 
@@ -24,7 +25,7 @@ def test_create_adapter_builds_it_with_the_key():
 def test_keyless_local_models_need_no_key():
     adapter = create_adapter(MODELS["local-free"])
     # local-free has no native tool calling, so it comes wrapped in the text-action fallback (P12)
-    assert isinstance(adapter, TextActionAdapter) and isinstance(adapter.inner, OpenAICompatibleAdapter)
+    assert names(adapter) == ["TextActionAdapter", "PrivacyGuardAdapter", "OpenAICompatibleAdapter"]
     adapter.close()
 
 

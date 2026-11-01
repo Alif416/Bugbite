@@ -6,6 +6,7 @@ from bugbite.adapter.cost import CallCost, compute_cost, format_usd, worst_case_
 from bugbite.adapter.ledger import CallRecord, CostLedger, ModelTotals
 from bugbite.adapter.metered import MeteredAdapter
 from bugbite.adapter.openai_compatible import OpenAICompatibleAdapter
+from bugbite.adapter.privacy_guard import PrivacyGuardAdapter
 from bugbite.adapter.registry import (
     create_adapter,
     register_adapter,
@@ -57,6 +58,7 @@ __all__ = [
     "Message",
     "ModelAdapter",
     "OpenAICompatibleAdapter",
+    "PrivacyGuardAdapter",
     "ROLE_ASSISTANT",
     "ROLE_USER",
     "SCHEMA_VERSION",

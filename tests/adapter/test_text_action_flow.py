@@ -6,6 +6,7 @@ from decimal import Decimal
 import httpx
 import pytest
 from adapter_contract import AdapterContract
+from chain_helpers import names
 from claude_helpers import model as paid_model
 from openai_helpers import adapter_for as openai_adapter_for
 from openai_helpers import completion
@@ -303,19 +304,20 @@ def test_create_adapter_wraps_models_without_native_tool_calling_and_only_those(
     models = load_models_config("config/models.yaml")
     ledger = CostLedger()
     local = create_adapter(models["local-free"], ledger=ledger)
-    assert isinstance(local, TextActionAdapter) and isinstance(local.inner, MeteredAdapter) and local.inner.ledger is ledger
+    assert names(local) == ["TextActionAdapter", "MeteredAdapter", "PrivacyGuardAdapter", "OpenAICompatibleAdapter"]
+    assert local.inner.ledger is ledger
     local.close()
     native = create_adapter(models["haiku"], api_key="sk-ant-x", ledger=ledger)
-    assert isinstance(native, MeteredAdapter) and isinstance(native.inner, ClaudeAdapter)
+    assert names(native) == ["MeteredAdapter", "PrivacyGuardAdapter", "ClaudeAdapter"]
     native.close()
     plain = create_adapter(models["haiku"], api_key="sk-ant-x")
-    assert isinstance(plain, ClaudeAdapter)
+    assert names(plain) == ["PrivacyGuardAdapter", "ClaudeAdapter"]
     plain.close()
 
 
 def test_without_a_ledger_a_non_native_model_is_wrapped_directly():
     local = create_adapter(load_models_config("config/models.yaml")["local-free"])
-    assert isinstance(local, TextActionAdapter) and not isinstance(local.inner, MeteredAdapter)
+    assert names(local) == ["TextActionAdapter", "PrivacyGuardAdapter", "OpenAICompatibleAdapter"]
     local.close()
 
 
