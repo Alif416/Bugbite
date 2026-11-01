@@ -421,3 +421,15 @@ Tests run inside the sandbox with the repo's own pytest configuration. A small B
 | `crashed` | internal error, plugin failed to load, report missing, or an unexpected exit code |
 
 Per-test outcomes are `passed`, `failed`, `error`, `skipped`, `xfailed` and `xpassed`. Tests run with the network cut, so tests that need the internet fail; later baseline comparison treats tests that fail both before and after a fix as pre-existing. A test result is only as trustworthy as the code running inside pytest: the verifier (P33) re-checks in a clean container.
+
+### Cleanup of sandboxes
+
+A crashed or killed job must not leave containers behind. Three layers work together:
+
+1. **Docker removes a sandbox itself** when it exits (it is created with auto-remove), including at the end of its `max_lifetime_s`, together with its workspace volume.
+2. **`sweep_orphans()`** removes sandboxes whose owner process is gone, or that outlived their lifetime plus a 60-second grace period, and leftover labelled workspace volumes. It runs automatically before every sandbox start (a failure there never blocks a start) and can be called directly. It only touches objects labelled `bugbite.sandbox=1`, and never a sandbox whose owner is alive and within its lifetime.
+3. **Exit hooks:** live sandboxes are closed on normal exit. Entry points (CLI, API) should also call `install_signal_cleanup()` once, from the main thread, so that SIGTERM and Ctrl-C close them too. It is never installed on import.
+
+`kill -9` and power loss cannot be caught; those are covered by layers 1 and 2. To check by hand: `docker ps -a --filter label=bugbite.sandbox=1` and `docker volume ls --filter label=bugbite.sandbox=1`.
+
+Workspace volumes created before this cleanup existed carry no label, so Bugbite cannot tell them from other programs' volumes and leaves them alone. List them with `docker volume ls -f dangling=true` and remove the ones that belong to Bugbite with `docker volume rm <name>`.

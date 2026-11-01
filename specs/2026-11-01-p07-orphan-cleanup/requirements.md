@@ -64,3 +64,8 @@ See `specs/decisions.md` AD-040 to AD-044.
 ## Decision log
 
 Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-040 to AD-044).
+
+## Findings from the build (2026-11-01)
+
+- A first by-hand `kill -9` test killed only the `uv run` wrapper, leaving the Python owner alive; the sweeper correctly kept the sandbox. Redone against the real Python process: the container stayed up after the kill (the problem), and `sweep_orphans()` removed the container and its volume.
+- One P5 internet test (`test_optional_test_requirements_failure_is_a_warning`) failed once in a full run and passed in the five runs after it, so the cause is unknown. It does a real `pip install` from PyPI through Docker's network; a transient network problem is the likeliest cause but is not proven. The internet tests now print the failing step's output in their assertion messages so a recurrence can be diagnosed.
