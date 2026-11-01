@@ -19,7 +19,7 @@ from .conftest import BASE, comment_json, issue_json, repo_json
 
 REPO = RepoRef("octo", "hello")
 ISSUE = IssueRef(REPO, 7)
-TOKEN = "ghp_SECRETTOKENVALUE123"
+TOKEN = "fake-test-token-not-a-secret-123"
 
 
 def json_handler(payload, status=200, headers=None):
