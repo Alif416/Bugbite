@@ -23,6 +23,7 @@ MAX_COLLECTION_ERRORS_SHOWN = 5
 TEST_TAIL_CHARS = 1_500
 MESSAGE_CHARS = 200
 COMMAND_CHARS = 2_000
+NO_TIME_LEFT = "Not run: less than a second is left of the time limit for this job."
 OUTPUT_HEAD_CHARS = 3_000
 OUTPUT_TAIL_CHARS = 3_000
 # built from constants only: nothing from the host environment, the repo, the issue or the model
@@ -68,7 +69,7 @@ class EditFile(Tool):
                 return error(reason)
         return None
 
-    def _run(self, arguments: dict[str, Any]) -> ToolOutput:
+    def _run(self, arguments: dict[str, Any], time_limit_s: float | None = None) -> ToolOutput:
         try:
             rel = clean_relative(arguments["path"])
         except PathRejected as exc:
@@ -197,13 +198,22 @@ class RunTests(Tool):
         self.sandbox = sandbox
         self.runner = runner
 
-    def _run(self, arguments: dict[str, Any]) -> ToolOutput:
+    def _run(self, arguments: dict[str, Any], time_limit_s: float | None = None) -> ToolOutput:
         keyword = arguments.get("keyword")
         if keyword is not None and keyword.lstrip().startswith("-"):
             return error("keyword must not start with '-'.")
         extra = ["-k", keyword] if keyword else []
+        options: dict[str, Any] = {}
+        if time_limit_s is not None:
+            if time_limit_s < 1:
+                return error(NO_TIME_LEFT)
+            limits = [int(time_limit_s)]
+            configured = getattr(getattr(self.sandbox, "config", None), "test_timeout_s", None)
+            if configured:
+                limits.append(configured)
+            options["timeout"] = min(limits)
         try:
-            suite = self.runner(self.sandbox, list(arguments.get("targets", ())), extra_args=extra)
+            suite = self.runner(self.sandbox, list(arguments.get("targets", ())), extra_args=extra, **options)
         except ValueError as exc:
             return error(f"Invalid test target: {exc}")
         return ToolOutput(summarise(suite))
@@ -263,7 +273,7 @@ class RunCommand(Tool):
     def __init__(self, sandbox: Any) -> None:
         self.sandbox = sandbox
 
-    def _run(self, arguments: dict[str, Any]) -> ToolOutput:
+    def _run(self, arguments: dict[str, Any], time_limit_s: float | None = None) -> ToolOutput:
         command = arguments["command"]
         if "\x00" in command:
             return error("The command contains a NUL character.")
@@ -271,6 +281,10 @@ class RunCommand(Tool):
             return error("Refusing to run: the sandbox still has network access. This is a Bugbite setup problem, not something you can fix.")
         limit = self.sandbox.config.command_timeout_s
         timeout = min(arguments.get("timeout_s", limit), limit)
+        if time_limit_s is not None:
+            if time_limit_s < 1:
+                return error(NO_TIME_LEFT)
+            timeout = min(timeout, int(time_limit_s))  # never longer than the job has left
         result = self.sandbox.run(command, timeout=timeout, workdir=REPO_DIR, env=COMMAND_ENV)
         output = result.stdout
         if result.stderr:
