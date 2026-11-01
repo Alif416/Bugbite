@@ -443,3 +443,17 @@ All models are used through `bugbite.adapter`. A `GenerationRequest` (system pro
 - Adapters are built with `create_adapter(model_config, api_key=...)`. The caller reads the environment variable named by `api_key_env` and passes the key in; local models need no key.
 - `config/models.yaml` fields: `provider` (`claude` or `openai_compatible`), `base_url`, `model_name`, `context_window`, `max_output_tokens`, `native_tool_calling` (reported as the integration method, `native` or `text_action`), prices per token, `per_issue_cap_usd`, `allow_private_code`, `api_key_env`.
 - `bugbite.adapter.testing.ScriptedAdapter` returns canned responses, so the agent loop and replay can be built and tested without a provider. `tests/adapter/adapter_contract.py` is the contract every real adapter must pass.
+
+### Using an OpenAI-compatible model
+
+`bugbite.adapter.OpenAICompatibleAdapter` talks to any server that offers the chat completions API (local or hosted). Add an entry to `config/models.yaml` with `provider: openai_compatible`, the server's `base_url` (including `/v1`), and `api_key_env` if it needs a key; `create_adapter(model, api_key=...)` builds it. It sends tools natively, so a model with `native_tool_calling: false` is refused when tools are sent (the text-action fallback is a later phase). The key is sent only in the `Authorization` header and redirects are not followed.
+
+**Free hosted tiers (cautions).** The `groq-free` entry is a placeholder: every Groq-specific value in it is marked `confirm` and was taken from third-party pages on 2026-11-01. Before the first real run, read Groq's own pages for the current model list, tool-calling support, rate limits, and data terms, and note the date. Free tiers can have tight per-minute token limits and may use prompts for training, so only public repos are sent (`allow_private_code: false`).
+
+**Live check (opt-in).** With a free key from console.groq.com:
+
+```bash
+BUGBITE_LIVE_TESTS=1 GROQ_API_KEY=... uv run pytest tests/adapter/test_live_openai_compatible.py -s
+```
+
+It makes two small calls and counts against the free tier's limits. It has not been run in this repository's history yet.

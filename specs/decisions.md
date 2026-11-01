@@ -437,3 +437,54 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** One interface for all models (FR14.1) means a model without native tool calling should not need special handling in the loop; a wrapper keeps that logic in one place and testable. A scripted adapter lets the agent loop, recorder, and replayer be built and tested with no provider and no cost (mission principle 6). A shared contract test makes "works like every other adapter" checkable instead of assumed.
 - **Alternatives:** A flag inside each adapter (duplicated logic); testing the loop only against live models (costly, non-deterministic).
 - **Consequences:** The wrapper (P12) must produce the same response shape, including normalised stop reasons and usage. The contract tests grow as real adapters reveal differences.
+
+---
+
+## AD-052: `httpx` and the Chat Completions API, no vendor SDK
+
+- **Date:** 2026-11-01 · **Phase:** P9 · **Status:** Accepted
+- **Decision:** The OpenAI-compatible adapter calls `POST {base_url}/chat/completions` with `httpx`. It uses neither the `openai` package nor the newer Responses API.
+- **Why:** The Chat Completions shape is the common denominator that Ollama, Groq, OpenRouter, vLLM, and similar servers implement, which is what FR14.2 asks for. A direct client keeps one small dependency we already use (AD-016), makes the adapter easy to test with a mock transport and a loopback server, and gives full control over error mapping, redirects (the key must not follow a redirect), and timeouts. Vendor SDKs add their own retry and error behaviour, which would conflict with AD-049 (adapters do not retry).
+- **Alternatives:** The `openai` SDK (hides retries and errors, more dependencies, assumes OpenAI-specific behaviour); the Responses API (not implemented by most compatible servers).
+- **Consequences:** We own the translation and its tests. Servers that deviate from the common shape need tolerance in parsing (AD-053).
+
+## AD-053: Translate strictly, parse tolerantly
+
+- **Date:** 2026-11-01 · **Phase:** P9 · **Status:** Accepted
+- **Decision:** Outgoing requests follow the standard shape exactly (system message, `tool` role messages for tool results, JSON-string tool arguments, `max_tokens`). Incoming responses are parsed tolerantly: `content` may be a string, `null`, or a list of text parts; reasoning fields are ignored; tool arguments may be a string or an object; missing or duplicate tool call ids are replaced with unique ones; `stop` with tool calls means `tool_use`; cached prompt tokens are subtracted from the input count. Anything that cannot be understood (no choices, a tool call without a name, non-JSON) is a `bad_response`, and unparseable tool arguments become an empty dictionary plus an `error` on that call, never an exception.
+- **Why:** Free and local servers differ in details, and the README lists weak tool calling as a known risk (FR14.4). A strict parser would turn harmless differences into failed runs, while a sloppy sender would risk rejections. Keeping unparseable arguments as data lets the agent tell the model what it got wrong (AD-048). Ignoring reasoning fields keeps hidden chain-of-thought out of the text the agent acts on.
+- **Alternatives:** Strict parsing (fails on common server variations); passing reasoning text through (pollutes the answer, costs context).
+- **Consequences:** Each tolerated variation needs a test; new quirks found with real models are added the same way.
+
+## AD-054: Never drop tools silently; models without native tool calling are refused
+
+- **Date:** 2026-11-01 · **Phase:** P9 · **Status:** Accepted
+- **Decision:** If a request has tools and the model is configured with `native_tool_calling: false`, the adapter raises `invalid_request` before any network call and says to use the text-action wrapper. The wrapper itself is P12.
+- **Why:** A model that ignores tools but is asked to use them produces confusing, expensive runs; hiding that by silently sending the request without tools would look like the model "chose" not to call tools. FR13.8 requires the integration method to be reported, which only works if the method is explicit. The wrapper design (AD-051) keeps the fallback in one place.
+- **Alternatives:** Implementing the JSON-action fallback inside this adapter (duplicates P12 and mixes two concerns); sending tools anyway (unreliable).
+- **Consequences:** Until P12, the `local-free` placeholder (`native_tool_calling: false`) cannot run tool conversations. That is intended.
+
+## AD-055: Error mapping, and what error messages may contain
+
+- **Date:** 2026-11-01 · **Phase:** P9 · **Status:** Accepted
+- **Decision:** HTTP and transport failures map to the stable adapter codes: context overflow (400 with context wording, 413) to `context_too_long`; 401, 402, 403 to `auth_failed`; 429 to `rate_limited` carrying `retry_after_s` from `Retry-After` (seconds or HTTP date); 408 and timeouts to `timeout`; 5xx to `server_error`; connection, DNS, TLS and dropped connections to `network_error`; other 4xx, including an unknown model (404) and 422, to `invalid_request`; redirects, non-JSON, wrong shapes, and errors embedded in a 200 response to `bad_response` or the code the embedded error maps to. Messages include the provider's own message shortened to 300 characters, and never the request body, headers, or key. Redirects are not followed.
+- **Why:** The loop, queue, and failure classifier react to codes, not provider text (AD-049). The provider's message is the most useful detail ("model not found, try pulling it first"), but request content may be private and the key must never leak, so bodies and headers stay out. Not following redirects stops the Authorization header from travelling to another host. 402 is treated as an authentication/account problem because retrying cannot help.
+- **Alternatives:** Passing the whole response body through (may echo private code); following redirects (key leak risk); mapping 402 to rate limiting (would retry forever).
+- **Consequences:** Providers that signal context overflow in unusual wording may be reported as `invalid_request`; the wording list grows as real providers are met.
+- **Added during the build (2026-11-01):** providers sometimes quote the credentials they were sent inside their own error text (OpenAI-style 401 messages do), and the provider's message is passed on, so the adapter redacts the API key and any `Bearer ...` token from provider text before it goes into an error. A base URL without a host is rejected when the adapter is built. Groq reports an over-large request (too many tokens per minute) as HTTP 413, which maps to `context_too_long`; the right response is to send less context, which is also what that code tells the loop.
+
+## AD-056: Estimate and flag token usage when a server reports none
+
+- **Date:** 2026-11-01 · **Phase:** P9 · **Status:** Accepted
+- **Decision:** When a response has no usable `usage`, the adapter fills it from its own estimate (prompt estimate for input, response length for output) and sets a new optional field `usage_estimated: true` on `GenerationResponse`. The field is included in the JSON form. `SCHEMA_VERSION` stays 1 because nothing has been recorded yet, so there is nothing to migrate.
+- **Why:** Reports must say which numbers were measured and which were estimated (README: report real numbers, measured claims only), and token statistics for free models would otherwise read as zero (FR14.6). The owner chose this option.
+- **Alternatives:** Reporting zeros (silently wrong statistics); raising an error (a free local server that omits usage would be unusable).
+- **Consequences:** Cost tracking (P11) and reports must carry the flag through. If recordings existed already, adding a field would need a version bump; this is the last cheap moment to extend the format.
+
+## AD-057: Groq as the first free hosted model; unverified until its own pages are read; public repos only
+
+- **Date:** 2026-11-01 · **Phase:** P9 · **Status:** Accepted
+- **Decision:** Add a `groq-free` model entry (OpenAI-compatible base URL, `api_key_env: GROQ_API_KEY`, prices 0, `allow_private_code: false`) with every model-specific value marked `confirm`. The live check runs when the owner supplies a key, and is opt-in. P9 can merge before that, with the live check stated as not run if so. The owner chose Groq over OpenRouter and local Ollama.
+- **Why:** The adapter is generic, so merging does not depend on the provider, and the owner has no key yet. The only information found about free tiers came from third-party pages and showed tight limits that matter for an agent (reportedly about 8,000 tokens per minute and 200,000 per day on one Groq model; 50 requests per day on OpenRouter free models until about $10 of credits are bought), so nothing about model names, limits, or data terms is claimed as verified. FR14.9 says free hosted tiers may use prompts for training, so they only receive public repos and sandbox issues until their terms are confirmed.
+- **Alternatives:** Waiting for a key before building (blocks the plan for no code reason); OpenRouter (daily cap too small without a top-up); local Ollama (needs a large download and gives weaker tool calls; remains an option later).
+- **Consequences:** Whether Groq's free tier can finish benchmark issues depends on the confirmed limits and on rate-limit handling in P51. The first real run must record the date and terms read from Groq's own pages.

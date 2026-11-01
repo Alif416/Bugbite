@@ -327,3 +327,35 @@ def test_malformed_response_json_is_rejected_clearly(mutate, message):
     mutate(data)
     with pytest.raises(SchemaError, match=message):
         GenerationResponse.from_dict(data)
+
+
+# -- usage_estimated -----------------------------------------------------------------------------
+
+
+def test_usage_estimated_defaults_to_false_and_round_trips():
+    response = GenerationResponse(blocks=(), stop_reason="end_turn", usage=Usage(), model="m")
+    assert response.usage_estimated is False
+    estimated = GenerationResponse(blocks=(), stop_reason="end_turn", usage=Usage(1, 2), model="m", usage_estimated=True)
+    restored = GenerationResponse.from_dict(json.loads(json.dumps(estimated.to_dict())))
+    assert restored == estimated and restored.usage_estimated is True
+    assert estimated.to_dict()["usage_estimated"] is True
+
+
+def test_usage_estimated_must_be_a_bool():
+    with pytest.raises(TypeError):
+        GenerationResponse(blocks=(), stop_reason="end_turn", usage=Usage(), model="m", usage_estimated="yes")
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None])
+def test_usage_estimated_is_strictly_decoded(bad):
+    data = full_response().to_dict()
+    data["usage_estimated"] = bad
+    with pytest.raises(SchemaError, match="usage_estimated"):
+        GenerationResponse.from_dict(data)
+
+
+def test_usage_estimated_is_required_in_json():
+    data = full_response().to_dict()
+    del data["usage_estimated"]
+    with pytest.raises(SchemaError, match="usage_estimated"):
+        GenerationResponse.from_dict(data)
