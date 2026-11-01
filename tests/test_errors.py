@@ -1,7 +1,7 @@
 import pytest
 
 from bugbite import errors
-from bugbite.errors import ALL_API_CODES, ALL_CODES, GitHubAPIError, InputError
+from bugbite.errors import ALL_API_CODES, ALL_CODES, ALL_SANDBOX_CODES, GitHubAPIError, InputError, SandboxError
 
 
 def test_codes_are_stable():
@@ -62,3 +62,31 @@ def test_unknown_code_rejected():
 def test_empty_message_rejected():
     with pytest.raises(ValueError):
         InputError(errors.INVALID_URL, "")
+
+
+def test_sandbox_codes_are_stable():
+    assert ALL_SANDBOX_CODES == {
+        "docker_unavailable",
+        "image_unavailable",
+        "start_failed",
+        "exec_failed",
+        "sandbox_closed",
+        "backstop_timeout",
+    }
+
+
+@pytest.mark.parametrize("code", sorted(ALL_SANDBOX_CODES))
+def test_sandbox_error_carries_code_and_message(code):
+    err = SandboxError(code, "docker is down")
+    assert err.code == code
+    assert err.message == "docker is down"
+    assert str(err) == "docker is down"
+
+
+def test_sandbox_error_validates_code_and_message():
+    with pytest.raises(ValueError):
+        SandboxError("made_up", "x")
+    with pytest.raises(ValueError):
+        SandboxError("start_failed", "")
+    with pytest.raises(ValueError):
+        SandboxError("rate_limited", "x")  # a GitHubAPIError code

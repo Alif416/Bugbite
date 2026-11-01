@@ -41,6 +41,20 @@ class AppConfig:
     total_budget_usd: float
 
 
+@dataclass(frozen=True)
+class SandboxConfig:
+    """Sandbox container settings. All values must be positive."""
+
+    image: str = "python:3.11-slim"
+    cpus: float = 1
+    memory_mb: int = 2048
+    pids_limit: int = 256
+    command_timeout_s: int = 120
+    max_output_bytes: int = 1_048_576
+    max_lifetime_s: int = 1800
+    workspace_mb: int = 1024
+
+
 _MODEL_FIELDS: dict[str, type | tuple[type, ...]] = {
     "provider": str,
     "base_url": str,
@@ -147,6 +161,35 @@ def load_app_config(
         max_wall_clock_s=data["max_wall_clock_s"],
         total_budget_usd=float(data["total_budget_usd"]),
     )
+
+
+def load_sandbox_config(path: str | Path) -> SandboxConfig:
+    """Load the optional `sandbox:` section of app.yaml, filling gaps from defaults."""
+    path = Path(path)
+    data = _read_yaml(path)
+    section = data.get("sandbox")
+    if section is None:
+        return SandboxConfig()
+    where = f"{path}: sandbox"
+    if not isinstance(section, dict):
+        raise ConfigError(f"{where}: expected a mapping")
+    defaults = SandboxConfig()
+    known = set(defaults.__dataclass_fields__)
+    unknown = sorted(str(key) for key in section if key not in known)
+    if unknown:
+        raise ConfigError(f"{where}: unknown field '{unknown[0]}'")
+    merged: dict[str, Any] = {**defaults.__dict__, **section}
+    image = merged["image"]
+    if not isinstance(image, str) or not image.strip():
+        raise ConfigError(f"{where}: field 'image' must be a non-empty string")
+    for field in known - {"image"}:
+        value = merged[field]
+        expected = (int, float) if field == "cpus" else int
+        if isinstance(value, bool) or not isinstance(value, expected):
+            raise ConfigError(f"{where}: field '{field}' has the wrong type")
+        if value <= 0:
+            raise ConfigError(f"{where}: field '{field}' must be greater than zero")
+    return SandboxConfig(**merged)
 
 
 def get_secret(name: str) -> str:
