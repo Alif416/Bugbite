@@ -392,3 +392,14 @@ Fill these in only with numbers from real runs:
 4. Which free models should be compared (a local model through Ollama, a free hosted tier, or both), and does the owner have a GPU or enough RAM to run a local model?
 5. Is a stronger paid model wanted at all, or is Haiku plus free models enough? If wanted, can the budget be raised above 5 USD if the spike shows it costs too much?
 6. If Haiku solves almost nothing on SWE-bench Lite, is a custom set of about 25 small Python bugs acceptable as the fallback benchmark?
+## 17. Development Setup
+
+Requires [uv](https://docs.astral.sh/uv/) (Python 3.11 is installed automatically).
+
+```bash
+uv sync                      # create .venv and install dependencies
+uv run pytest                # run the test suite
+cp .env.example .env         # then fill in secrets (never commit .env)
+```
+
+Config lives in `config/`: `app.yaml` (limits, default model) and `models.yaml` (one entry per model). Secrets are read only from environment variables.

@@ -6,7 +6,7 @@ FR numbers refer to README.md section 5.
 
 ## Foundation
 
-- [ ] **P1. Project skeleton** — repo layout, module folders, pytest runs, config loading, CI stub.
+- [x] **P1. Project skeleton** — repo layout, module folders, pytest runs, config loading, CI stub.
 - [ ] **P2. Input validation** — parse issue URL + repo URL; reject non-GitHub/non-Python with clear messages (FR1.1, FR1.4).
 - [ ] **P3. Issue fetch** — title, body, labels, comments via GitHub API; public/token access check (FR1.2, FR1.3).
 - [ ] **P4. Sandbox: run a command** — start a limited Docker container, run one command, clean up (FR2.1, FR2.3, FR2.4, FR2.5).

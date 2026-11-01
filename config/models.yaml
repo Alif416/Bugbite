@@ -1,0 +1,25 @@
+# One entry per model. Prices are USD per token (0 for free models).
+# Owner: confirm the Haiku model ID and prices before the first paid run.
+models:
+  haiku:
+    provider: claude
+    base_url: https://api.anthropic.com
+    model_name: claude-haiku-5-5   # confirm
+    context_window: 200000
+    native_tool_calling: true
+    price_per_input_token: 0.000001    # confirm
+    price_per_output_token: 0.000005   # confirm
+    per_issue_cap_usd: 0.10
+    allow_private_code: false
+
+  local-free:
+    # Placeholder until the owner picks a free model (README open question 4).
+    provider: openai_compatible
+    base_url: http://localhost:11434/v1
+    model_name: replace-me
+    context_window: 32768
+    native_tool_calling: false
+    price_per_input_token: 0
+    price_per_output_token: 0
+    per_issue_cap_usd: 0
+    allow_private_code: true

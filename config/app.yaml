@@ -1,0 +1,6 @@
+# App-wide limits. Secrets never go in this file; use environment variables.
+default_model: haiku   # must be a key in models.yaml
+max_steps: 30          # hard cap per job
+max_cost_usd: 0.10     # hard cap per job
+max_wall_clock_s: 600  # hard cap per job (10 minutes)
+total_budget_usd: 5.0  # whole-project API budget
