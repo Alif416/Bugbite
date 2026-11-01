@@ -177,6 +177,8 @@ class AppConfig:
     max_cost_usd: float
     max_wall_clock_s: int
     total_budget_usd: float
+    # The owner's demo and test repos (lower-case `owner/name`) whose code any configured model may see.
+    sandbox_repos: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -416,6 +418,24 @@ def load_models_config(path: str | Path) -> dict[str, ModelConfig]:
     return result
 
 
+_SANDBOX_REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]{1,100}")
+
+
+def _parse_sandbox_repos(where: str, value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ConfigError(f"{where}: field 'sandbox_repos' must be a list of owner/name entries")
+    result: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str) or not _SANDBOX_REPO.fullmatch(entry.strip()) or entry.strip().split("/")[1] in (".", ".."):
+            raise ConfigError(f"{where}: sandbox_repos entry {entry!r} must look like owner/name")
+        normal = entry.strip().lower()
+        if normal not in result:
+            result.append(normal)
+    return tuple(result)
+
+
 def load_app_config(
     path: str | Path, models: dict[str, ModelConfig] | None = None
 ) -> AppConfig:
@@ -433,6 +453,7 @@ def load_app_config(
         max_cost_usd=float(data["max_cost_usd"]),
         max_wall_clock_s=data["max_wall_clock_s"],
         total_budget_usd=float(data["total_budget_usd"]),
+        sandbox_repos=_parse_sandbox_repos(str(path), data.get("sandbox_repos")),
     )
 
 

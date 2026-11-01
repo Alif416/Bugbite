@@ -5,6 +5,11 @@ max_cost_usd: 0.10     # hard cap per job
 max_wall_clock_s: 600  # hard cap per job (10 minutes)
 total_budget_usd: 5.0  # whole-project API budget
 
+# Repos you own and are happy for ANY configured model to see, even free hosted tiers that may train on
+# prompts: your demo and test repos, written owner/name. Everything else that is private stays away from
+# models whose `allow_private_code` is false. (Unrelated to the Docker sandbox below.)
+sandbox_repos: []
+
 # Sandbox container settings (all optional; these are the defaults).
 sandbox:
   image: bugbite-sandbox:py3.11-1   # built from docker/sandbox.Dockerfile on first use

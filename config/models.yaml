@@ -24,6 +24,8 @@ models:
         cache_read: 0.05
         cache_write: 0.625
     per_issue_cap_usd: 0.10
+    # Whether Anthropic's API terms suit your private code is your decision. Keep false until you have read
+    # them (and note the date); with false, Haiku only works on public repos and your sandbox_repos.
     allow_private_code: false
     api_key_env: ANTHROPIC_API_KEY
     max_output_tokens: 4096
@@ -40,7 +42,7 @@ models:
       input: 0
       output: 0
     per_issue_cap_usd: 0
-    allow_private_code: true
+    allow_private_code: true   # runs on your own machine, so private code does not leave it
     max_output_tokens: 4096   # no api_key_env: local models need no key
 
   groq-free:
