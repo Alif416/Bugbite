@@ -1,11 +1,12 @@
 """Errors raised for problems outside the program's own bugs.
 
-Four families, because callers present them differently:
+Five families, because callers present them differently:
 
 - `InputError`: the user can fix it (bad URL, repo not found, not Python).
 - `GitHubAPIError`: the provider or network failed (rate limit, timeout).
 - `SandboxError`: Docker or the sandbox container failed.
 - `AdapterError`: a model provider failed or rejected a request.
+- `PrivacyError`: the privacy rule refused to send code to a model.
 
 Each carries a stable `code` so the CLI, API, and dashboard can map it to
 their own output without parsing message text.
@@ -164,3 +165,27 @@ class AdapterError(Exception):
         self.message = message
         self.retry_after_s = retry_after_s
         self.status_code = status_code
+
+
+# PrivacyError codes
+PRIVATE_CODE_BLOCKED = "private_code_blocked"
+
+ALL_PRIVACY_CODES = frozenset({PRIVATE_CODE_BLOCKED})
+
+
+class PrivacyError(Exception):
+    """Private code was about to go to a model that is not allowed to receive it.
+
+    A family of its own on purpose: it is not a user typo (`InputError`) and not a provider
+    fault (`AdapterError`), so retry, fallback, and repair logic that catches those cannot
+    swallow it by accident. Messages never contain issue text, comments, or code.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        if code not in ALL_PRIVACY_CODES:
+            raise ValueError(f"unknown PrivacyError code: {code!r}")
+        if not message:
+            raise ValueError("PrivacyError needs a non-empty message")
+        super().__init__(message)
+        self.code = code
+        self.message = message
