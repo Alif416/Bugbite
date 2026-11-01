@@ -2,6 +2,17 @@
 
 from bugbite.sandbox.container import CommandResult, Sandbox, list_sandbox_containers
 from bugbite.sandbox.image import SANDBOX_IMAGE
+from bugbite.sandbox.testrun import (
+    CaseResult,
+    CollectionError,
+    SuiteRun,
+    build_pytest_command,
+    classify,
+    collect_tests,
+    ensure_has_tests,
+    parse_report,
+    run_tests,
+)
 from bugbite.sandbox.setup import (
     InstallStep,
     SetupResult,
@@ -15,6 +26,15 @@ from bugbite.sandbox.setup import (
 )
 
 __all__ = [
+    "CaseResult",
+    "CollectionError",
+    "SuiteRun",
+    "build_pytest_command",
+    "classify",
+    "collect_tests",
+    "ensure_has_tests",
+    "parse_report",
+    "run_tests",
     "SANDBOX_IMAGE",
     "CommandResult",
     "InstallStep",

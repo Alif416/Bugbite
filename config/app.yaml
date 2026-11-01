@@ -16,3 +16,4 @@ sandbox:
   max_lifetime_s: 1800     # container removes itself after this
   workspace_mb: 2048       # soft cap on /workspace disk use
   setup_timeout_s: 900     # per clone/install step
+  test_timeout_s: 300      # per full test run

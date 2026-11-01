@@ -299,3 +299,37 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The first manual run on a real public repo (`pallets/itsdangerous`) "succeeded" at setup but its tests could not import `freezegun`, because the test dependencies live in a dependency group that the original heuristic ignored. The README names "environment setup fails on many repos" as a main risk, and this style is increasingly common with uv-based projects. After the change the same repo sets up in about 11 seconds and its own 297 tests pass offline. Whitelisting names stops a hostile `pyproject.toml` from injecting pip options.
 - **Alternatives:** Ignore groups and let such repos fail with import errors in P6 (a mislabelled failure: it would look like a test failure, not a setup gap); install every group (pulls in docs and lint tools, slower and more likely to conflict).
 - **Consequences:** An extra pip upgrade step (about 2 seconds) for repos with groups. Requirements kept in subfolders such as `requirements/tests.txt` are still not detected; add them when a chosen benchmark repo needs it. Group install failures are warnings, so a repo can still report `ok` with missing test dependencies; P6 test collection errors will surface that.
+
+---
+
+## AD-036: Capture test results with a small pytest plugin kept outside the repo
+
+- **Date:** 2026-11-01 · **Phase:** P6 · **Status:** Accepted
+- **Decision:** Ship a single-file pytest plugin (`bugbite_report.py`) inside the Bugbite package. Before each run it is copied to `/workspace/.bugbite/`, loaded with `-p bugbite_report` through `PYTHONPATH`, and appends one JSON line per event (`collected`, `test`, `collect_error`, `session`) to a report file, flushing after each line. The runner parses that file. Two small sandbox features support it: `Sandbox.write_file` and a per-command `env`.
+- **Why:** Later phases compare tests before and after a fix by exact node ID (FR6.2, FR6.3), so IDs must be exact. JUnit XML would force us to rebuild IDs from class and name, which is lossy for parametrized tests, and it cannot tell an expected failure from a skip. Parsing text output is fragile across pytest versions and plugins. Writing lines as tests finish means a timeout or crash still leaves usable partial results. Keeping the plugin outside the repo means it never shows up in `git diff` and the repo needs no changes. The owner chose this option.
+- **Alternatives:** JUnit XML (built in, but lossy IDs); `pytest-json-report` (a dependency installed into the repo's environment that could conflict with pins); text parsing (fragile).
+- **Consequences:** We maintain a small plugin that must stay compatible with old pytest versions (plain syntax, standard library only). Under `xdist` several processes write to the file, so each line carries the worker name and the parser takes the controller's session line.
+
+## AD-037: Run statuses, and what counts as "no tests"
+
+- **Date:** 2026-11-01 · **Phase:** P6 · **Status:** Accepted
+- **Decision:** A run has one status: `ok` (pytest ran; tests passed or failed), `no_tests` (collection succeeded and found nothing, pytest exit 5), `collection_error` (import errors during collection, or a pytest usage error such as `addopts` naming a plugin that is not installed), `timeout` (partial results kept), or `crashed` (internal error, plugin failed to load, report missing, or an unexpected exit code). Only `no_tests` leads to rejection, through `ensure_has_tests`, which raises `InputError("no_tests")`. Everything else is returned as a result with a reason.
+- **Why:** The README scopes v1 to Python repos with an existing test suite, so a repo with none should be refused up front. But zero collected tests caused by a missing dependency is an environment problem, not an absence of tests, and the README wants those logged as their own failure category (FR11: "environment or dependency setup failed"). Treating both as "no tests" would wrongly reject repos that only need a better install. The owner chose this option. Exit codes are mapped explicitly so a wrong result can never be reported as `ok`.
+- **Alternatives:** Reject both cases as "no tests" (wrongly rejects fixable repos); a single generic failure status (loses the information the failure classifier needs).
+- **Consequences:** A `usage error` is reported as `collection_error`, so that status covers "pytest could not start collecting" in general; the `reason` text says which kind. The meaning of each status is documented in the README.
+
+## AD-038: Respect the repo's pytest configuration; add only our own flags; 300 s limit
+
+- **Date:** 2026-11-01 · **Phase:** P6 · **Status:** Accepted
+- **Decision:** Run `python -m pytest` from the venv in the repo root, adding only `-p bugbite_report`, `-p no:cacheprovider`, `--tb=short`, and `--color=no`. The repo's own `addopts`, markers, and ini options apply unchanged. A full run is limited by `test_timeout_s` (default 300 s, configurable), separate from the 120 s limit for ordinary commands.
+- **Why:** Running the suite the way the project does keeps results meaningful: overriding `addopts` could drop flags the suite needs and silently change which tests run. `-p no:cacheprovider` avoids writing `.pytest_cache` into the repo, and `PYTHONDONTWRITEBYTECODE=1` stops `__pycache__` folders appearing in it (found in testing), so the repo's working tree stays as clean as possible for the patch checks in later phases; `--tb=short` and no colour keep the saved output compact and readable in PR evidence. 300 s fits the 10-minute median-job target when a baseline, a fix, and a verification run all happen. The owner chose both defaults.
+- **Alternatives:** Empty `addopts` (changes which tests run); a longer limit (a single run could use the whole job budget); a shorter one (many real suites would time out).
+- **Consequences:** Repos whose `addopts` need missing plugins fail clearly as `collection_error`. Tests that need the internet fail because the network is cut after setup; baseline comparison (P31, P32) must treat tests failing both before and after as pre-existing.
+
+## AD-039: What P6 guarantees about result integrity
+
+- **Date:** 2026-11-01 · **Phase:** P6 · **Status:** Accepted
+- **Decision:** Before every run the plugin file is rewritten and the report file is deleted, so stale or edited artifacts are never reused. P6 does not defend against code running inside pytest that deliberately forges the report (for example a malicious `conftest.py`). That defence is left to the verifier in P33, which will re-run tests in a clean container built from the patch.
+- **Why:** README FR6.5 requires the pass check to be done by the verifier, not by the agent. Trying to make an in-container run tamper-proof would add complexity without a real guarantee, because the code under test and the report writer share one process. Stating the limit plainly keeps later claims honest (mission principle 8).
+- **Alternatives:** Hashing or signing the report from inside the container (the forger has the same access); running the plugin on the host (not possible, tests run in the container).
+- **Consequences:** Until P33, a result is only as trustworthy as the repo code and the agent's edits. Test results from agent runs must not be reported as final verification.

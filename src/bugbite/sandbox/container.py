@@ -8,11 +8,14 @@ size cap (see `check_workspace`).
 
 from __future__ import annotations
 
+import io
 import logging
+import re
+import tarfile
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import docker
 from docker.errors import APIError, NotFound
@@ -38,6 +41,16 @@ WORKDIR = "/workspace"
 USER = "1000:1000"
 BACKSTOP_GRACE_S = 15
 _KILL_AFTER_S = 2
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+MAX_READ_BYTES = 64 * 1024 * 1024
+
+
+def _check_workspace_path(path: str) -> str:
+    if not isinstance(path, str) or not path.startswith(WORKDIR + "/") or ".." in path.split("/"):
+        raise ValueError(f"path must be absolute and under {WORKDIR}: {path!r}")
+    if "\x00" in path or "\n" in path:
+        raise ValueError("path contains illegal characters")
+    return path
 
 
 @dataclass(frozen=True)
@@ -213,6 +226,49 @@ class Sandbox:
                 log.warning("could not remove sandbox container %s: %s", container.name, _brief(exc))
         self._release_client()
 
+    def write_file(self, path: str, content: str | bytes) -> None:
+        """Write a file (owned by the sandbox user) under /workspace. The directory must exist."""
+        _check_workspace_path(path)
+        if self._container is None:
+            raise SandboxError(SANDBOX_CLOSED, "The sandbox is not running.")
+        data = content.encode("utf-8") if isinstance(content, str) else bytes(content)
+        directory, _, name = path.rpartition("/")
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as tar:
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            info.mode = 0o644
+            info.uid = info.gid = 1000
+            info.mtime = int(time.time())
+            tar.addfile(info, io.BytesIO(data))
+        try:
+            ok = self._container.put_archive(directory, buffer.getvalue())
+        except Exception as exc:
+            raise SandboxError(EXEC_FAILED, f"Could not write {path}: {_brief(exc)}") from None
+        if not ok:
+            raise SandboxError(EXEC_FAILED, f"Could not write {path}.")
+
+    def read_file(self, path: str, max_bytes: int = MAX_READ_BYTES) -> bytes | None:
+        """Read a file under /workspace. Returns None if it does not exist."""
+        _check_workspace_path(path)
+        if self._container is None:
+            raise SandboxError(SANDBOX_CLOSED, "The sandbox is not running.")
+        try:
+            stream, stat = self._container.get_archive(path)
+        except NotFound:
+            return None
+        except Exception as exc:
+            raise SandboxError(EXEC_FAILED, f"Could not read {path}: {_brief(exc)}") from None
+        if int(stat.get("size", 0)) > max_bytes:
+            raise SandboxError(EXEC_FAILED, f"{path} is larger than {max_bytes} bytes.")
+        try:
+            with tarfile.open(fileobj=io.BytesIO(b"".join(stream))) as tar:
+                member = tar.next()
+                handle = tar.extractfile(member) if member is not None else None
+                return handle.read() if handle is not None else None
+        except (tarfile.TarError, OSError) as exc:
+            raise SandboxError(EXEC_FAILED, f"Could not read {path}: {_brief(exc)}") from None
+
     def inspect(self) -> dict[str, Any]:
         """Docker's description of the running container (for tests and diagnostics)."""
         if self._container is None or self._client is None:
@@ -276,11 +332,14 @@ class Sandbox:
         *,
         timeout: float | None = None,
         workdir: str = WORKDIR,
+        env: Mapping[str, str] | None = None,
     ) -> CommandResult:
         """Run a command in the container.
 
         A string runs through `sh -c`; a list runs directly with no shell.
-        `workdir` is the directory inside the container to run in.
+        `workdir` is the directory inside the container to run in. `env` adds
+        environment variables for this command only; names and values must come
+        from Bugbite code, never from the repo, the issue, or the model.
         """
         if self._container is None or self._client is None:
             raise SandboxError(SANDBOX_CLOSED, "The sandbox is not running (start it, or use it in a 'with' block).")
@@ -291,11 +350,18 @@ class Sandbox:
         if not argv:
             raise ValueError("command must not be empty")
         wrapped = ["timeout", f"--kill-after={_KILL_AFTER_S}", f"{limit:g}", *argv]
+        environment = None
+        if env:
+            for name in env:
+                if not _ENV_NAME.fullmatch(name):
+                    raise ValueError(f"invalid environment variable name: {name!r}")
+            environment = [f"{name}={value}" for name, value in env.items()]
 
         api = self._client.api
         try:
             exec_id = api.exec_create(
-                self._container.id, wrapped, stdout=True, stderr=True, workdir=workdir, user=USER
+                self._container.id, wrapped, stdout=True, stderr=True, workdir=workdir, user=USER,
+                environment=environment,
             )["Id"]
             stream = api.exec_start(exec_id, stream=True, demux=True)
         except Exception as exc:
