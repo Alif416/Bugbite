@@ -8,13 +8,13 @@ from bugbite.adapter import (
     unregister_adapter,
 )
 from bugbite.adapter.testing import ScriptedAdapter
-from bugbite.config import ConfigError, ModelConfig
+from bugbite.config import ConfigError, ModelConfig, Pricing
 
 
 def config(provider="fake", api_key_env=None, name="m"):
     return ModelConfig(
         name=name, provider=provider, base_url="http://x", model_name="x", context_window=1000,
-        native_tool_calling=True, price_per_input_token=0, price_per_output_token=0,
+        native_tool_calling=True, pricing=Pricing.free(),
         per_issue_cap_usd=0, allow_private_code=True, api_key_env=api_key_env,
     )  # fmt: skip
 

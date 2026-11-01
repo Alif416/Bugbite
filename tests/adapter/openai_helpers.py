@@ -5,7 +5,7 @@ import json
 import httpx
 
 from bugbite.adapter import OpenAICompatibleAdapter
-from bugbite.config import ModelConfig
+from bugbite.config import ModelConfig, Pricing
 
 KEY = "sk-test-0123456789abcdef"
 BASE_URL = "http://llm.test/v1"
@@ -14,8 +14,8 @@ BASE_URL = "http://llm.test/v1"
 def model(native=True, base_url=BASE_URL, key_env="LLM_KEY", **overrides):
     values = dict(
         name="free-model", provider="openai_compatible", base_url=base_url, model_name="vendor/model-7b",
-        context_window=32_768, native_tool_calling=native, price_per_input_token=0.0,
-        price_per_output_token=0.0, per_issue_cap_usd=0.0, allow_private_code=False,
+        context_window=32_768, native_tool_calling=native, pricing=Pricing.free(),
+        per_issue_cap_usd=0.0, allow_private_code=False,
         api_key_env=key_env, max_output_tokens=2048,
     )  # fmt: skip
     values.update(overrides)

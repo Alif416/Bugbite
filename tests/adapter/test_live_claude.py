@@ -1,8 +1,8 @@
 """Opt-in checks against the real Claude API.
 
 Runs only when BUGBITE_LIVE_TESTS=1 and ANTHROPIC_API_KEY are both set. It makes a handful of
-small calls to Haiku 5.5 (a fraction of a cent in total) and prints usage and cost at the official
-prices. If it was not run, the P10 validation file must say so.
+small calls to Haiku 5.5 (a fraction of a cent in total) and prints usage and cost from the prices in
+config/models.yaml. If it was not run, the P10 validation file must say so.
 """
 
 import os
@@ -17,6 +17,7 @@ from bugbite.adapter import (
     ToolDefinition,
     ToolResultBlock,
     Usage,
+    compute_cost,
     create_adapter,
 )
 from bugbite.config import load_models_config
@@ -28,17 +29,10 @@ pytestmark = pytest.mark.skipif(
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Dollars per million tokens for prompts up to 100,000 tokens, read from the official pricing page on 2026-11-01.
-PRICE = {"input": 0.10, "output": 0.50, "cache_write": 0.125, "cache_read": 0.01}
-
-
 def cost(usage: Usage) -> float:
-    return (
-        usage.input_tokens * PRICE["input"]
-        + usage.output_tokens * PRICE["output"]
-        + usage.cache_write_tokens * PRICE["cache_write"]
-        + usage.cache_read_tokens * PRICE["cache_read"]
-    ) / 1_000_000
+    """Dollars for one call, from the prices in config/models.yaml (the same function the ledger uses)."""
+    pricing = load_models_config(ROOT / "config" / "models.yaml")["haiku"].pricing
+    return float(compute_cost(pricing, usage).total_usd)
 
 
 def report(label, response):

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -33,15 +34,24 @@ def test_the_shipped_haiku_entry_has_the_verified_values():
     assert haiku.provider == "claude" and haiku.model_name == "claude-haiku-5-5"
     assert haiku.base_url == "https://api.anthropic.com"
     assert haiku.context_window == 1_000_000
-    assert haiku.price_per_input_token == pytest.approx(0.10 / 1_000_000)
-    assert haiku.price_per_output_token == pytest.approx(0.50 / 1_000_000)
+    assert (haiku.pricing.input, haiku.pricing.output) == (Decimal("0.10"), Decimal("0.50"))
+    assert (haiku.pricing.cache_read, haiku.pricing.cache_write) == (Decimal("0.01"), Decimal("0.125"))
     assert haiku.api_key_env == "ANTHROPIC_API_KEY" and haiku.native_tool_calling is True
     assert haiku.prompt_caching == "auto" and haiku.allow_private_code is False
     assert 0 < haiku.max_output_tokens < haiku.context_window
 
 
 def test_the_haiku_entry_records_where_its_numbers_came_from_and_when():
+    pricing = MODELS["haiku"].pricing
+    assert pricing.as_of == "2026-11-01"
+    assert pricing.source and pricing.source.startswith("https://") and "pricing" in pricing.source
     block = (ROOT / "config" / "models.yaml").read_text().split("haiku:")[1].split("local-free:")[0]
-    assert "2026-11-01" in block and "official" in block.lower() and "re-check" in block.lower()
-    assert "100,000 tokens" in block and "P11" in block  # the price tier and who models it
+    assert "official" in block.lower() and "re-check" in block.lower()
     assert "confirm" not in block  # nothing in this entry is an unverified placeholder any more
+
+
+def test_the_haiku_entry_models_the_long_prompt_tier():
+    long = MODELS["haiku"].pricing.long_prompt
+    assert long is not None and long.over_tokens == 100_000
+    assert (long.input, long.output) == (Decimal("0.50"), Decimal("2.50"))
+    assert (long.cache_read, long.cache_write) == (Decimal("0.05"), Decimal("0.625"))
