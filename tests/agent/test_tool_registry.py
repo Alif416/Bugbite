@@ -21,7 +21,7 @@ class Boom(Tool):
     def __init__(self, exc):
         self.exc = exc
 
-    def _run(self, arguments):
+    def _run(self, arguments, time_limit_s=None):
         raise self.exc
 
 

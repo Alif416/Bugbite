@@ -15,12 +15,14 @@ class FakeTools:
         self.outputs = outputs or {}
         self.raises = raises
         self.executed = []
+        self.time_limits = []
 
     def definitions(self):
         return (ECHO, BOOM)
 
-    def execute(self, name, arguments):
+    def execute(self, name, arguments, *, time_limit_s=None):
         self.executed.append((name, dict(arguments)))
+        self.time_limits.append(time_limit_s)
         if self.raises:
             raise self.raises
         if name in self.outputs:
@@ -33,3 +35,19 @@ def adapter(*script):
 
 
 __all__ = ["FakeTools", "adapter", "text_response", "tool_call_response", "ECHO", "BOOM"]
+
+
+class Clock:
+    """A fake monotonic clock. `tick` moves it forward each time it is read; `advance` moves it by hand."""
+
+    def __init__(self, tick=0.0):
+        self.t = 0.0
+        self.tick = tick
+
+    def __call__(self):
+        now = self.t
+        self.t += self.tick
+        return now
+
+    def advance(self, seconds):
+        self.t += seconds

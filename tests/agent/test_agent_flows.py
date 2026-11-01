@@ -17,7 +17,7 @@ from bugbite.adapter import (
     unregister_adapter,
 )
 from bugbite.adapter.testing import ScriptedAdapter, text_response, tool_call_response
-from bugbite.agent import FINISHED, MAX_STEPS, PRIVACY_BLOCKED, run_agent
+from bugbite.agent import FINISHED, MAX_STEPS, PRIVACY_BLOCKED, Limits, run_agent
 from bugbite.agent.tools import build_agent_tools
 from bugbite.config import ModelConfig, Pricing
 from bugbite.privacy import Sensitivity
@@ -36,7 +36,7 @@ def sb(tmp_path):
     return box
 
 
-def fake_runner(sandbox, targets, *, extra_args=()):
+def fake_runner(sandbox, targets, *, extra_args=(), timeout=None):
     """Runs the repo's tiny test by hand so the 'tests' really depend on the file the agent edits."""
     ok = "a + b" in (sandbox.root / "app.py").read_text()
     outcome = "passed" if ok else "failed"
@@ -54,7 +54,7 @@ def test_a_scripted_model_fixes_a_bug_with_the_real_tools(sb):
         tool_call_response(("run_tests", {}), first_id=6),
         text_response("Fixed: add subtracted. Changed one line; run_tests passes."),
     ])
-    result = run_agent(model, tools, "add(1, 2) returns -1", max_steps=10)
+    result = run_agent(model, tools, "add(1, 2) returns -1", limits=Limits(max_steps=10))
     assert result.status == FINISHED and result.final_text.startswith("Fixed")
     assert (sb.root / "app.py").read_text() == "def add(a, b):\n    return a + b\n"
     outputs = [r.output.text for step in result.steps for r in step.tool_runs]
@@ -68,7 +68,7 @@ def test_the_model_cannot_rewrite_the_test_to_make_it_pass(sb):
         tool_call_response(("edit_file", {"path": "tests/test_app.py", "old_text": "== 3", "new_text": "== -1"})),
         text_response("I could not change the test."),
     ])
-    result = run_agent(model, tools, "task", max_steps=5)
+    result = run_agent(model, tools, "task", limits=Limits(max_steps=5))
     assert result.steps[0].tool_runs[0].output.is_error and "not allowed" in result.steps[0].tool_runs[0].output.text
     assert "== 3" in (sb.root / "tests/test_app.py").read_text()
 
@@ -76,7 +76,7 @@ def test_the_model_cannot_rewrite_the_test_to_make_it_pass(sb):
 def test_run_command_works_inside_the_loop(sb):
     tools = build_agent_tools(sb, test_runner=fake_runner)
     model = ScriptedAdapter(None, [tool_call_response(("run_command", {"command": "echo hi"})), text_response("done")])
-    result = run_agent(model, tools, "task", max_steps=3)
+    result = run_agent(model, tools, "task", limits=Limits(max_steps=3))
     assert result.steps[0].tool_runs[0].output.text == "exit code 0\nhi"
 
 
@@ -97,7 +97,7 @@ def test_a_text_only_model_completes_a_run_including_a_failed_step(sb):
         text_response('{"final": "Fixed the sign."}'),
     ])
     adapter = TextActionAdapter(raw)
-    result = run_agent(adapter, tools, "task", max_steps=10)
+    result = run_agent(adapter, tools, "task", limits=Limits(max_steps=10))
     assert result.status == FINISHED and result.final_text == "Fixed the sign."
     assert (sb.root / "app.py").read_text().endswith("a + b\n")
     failed = result.steps[1].tool_runs[0]
@@ -129,14 +129,14 @@ def closed_model():
 def test_a_public_job_runs_and_the_ledger_has_one_entry_per_model_call(provider):
     ledger = CostLedger()
     adapter = create_adapter(closed_model(), ledger=ledger, sensitivity=Sensitivity.PUBLIC)
-    result = run_agent(adapter, FakeTools(), "task", max_steps=5)
+    result = run_agent(adapter, FakeTools(), "task", limits=Limits(max_steps=5))
     assert result.status == FINISHED and len(ledger.calls) == len(result.steps) == 2
 
 
 def test_a_private_job_with_a_closed_model_is_blocked_before_anything_is_sent(provider):
     ledger = CostLedger()
     adapter = create_adapter(closed_model(), ledger=ledger)  # the default sensitivity is private
-    result = run_agent(adapter, FakeTools(), "task", max_steps=5)
+    result = run_agent(adapter, FakeTools(), "task", limits=Limits(max_steps=5))
     assert result.status == PRIVACY_BLOCKED and result.error_code == "private_code_blocked"
     assert provider["raw"].calls == [] and ledger.calls == () and result.steps == ()
 
@@ -161,5 +161,5 @@ def test_the_loop_never_touches_the_environment_or_logs_content():
 def test_max_steps_in_a_real_stuck_run(sb):
     tools = build_agent_tools(sb, test_runner=fake_runner)
     endless = [tool_call_response(("list_directory", {}), first_id=i) for i in range(1, 8)]
-    result = run_agent(ScriptedAdapter(None, endless), tools, "task", max_steps=4)
+    result = run_agent(ScriptedAdapter(None, endless), tools, "task", limits=Limits(max_steps=4))
     assert result.status == MAX_STEPS and len(result.steps) == 4 and sum(1 for s in result.steps if s.tool_runs) == 3

@@ -4,7 +4,7 @@ from loop_helpers import FakeTools, adapter, text_response, tool_call_response
 from bugbite.adapter import GenerationResponse, TextBlock, ToolCallBlock, Usage
 from bugbite.adapter.types import STOP_END_TURN, STOP_MAX_TOKENS, STOP_OTHER, STOP_REFUSAL, ToolResultBlock
 from bugbite.agent import (
-    EMPTY_REPLY, FINISHED, MAX_STEPS, MODEL_ERROR, PRIVACY_BLOCKED, PROMPT_VERSION, REFUSED, SYSTEM_PROMPT, TRUNCATED,
+    Limits, EMPTY_REPLY, FINISHED, MAX_STEPS, MODEL_ERROR, PRIVACY_BLOCKED, PROMPT_VERSION, REFUSED, SYSTEM_PROMPT, TRUNCATED,
     UNEXPECTED_STOP, FinishEvent, ModelCallEvent, ToolCallEvent, run_agent,
 )
 from bugbite.agent.tools import ToolOutput
@@ -20,21 +20,21 @@ def resp(blocks, stop=STOP_END_TURN, usage=None):
 def run(*script, tools=None, max_steps=10, **kw):
     ad = adapter(*script)
     tools = tools or FakeTools()
-    return run_agent(ad, tools, TASK, max_steps=max_steps, **kw), ad, tools
+    return run_agent(ad, tools, TASK, limits=Limits(max_steps=max_steps), **kw), ad, tools
 
 
 # -- argument checks ---------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("bad", [0, -1, True, False, 1.5, None, "3"])
-def test_max_steps_must_be_a_positive_integer(bad):
+@pytest.mark.parametrize("bad", [None, 3, "3", {"max_steps": 3}])
+def test_limits_must_be_a_limits_object(bad):
     ad = adapter(text_response("x"))
-    with pytest.raises(ValueError, match="max_steps"):
-        run_agent(ad, FakeTools(), TASK, max_steps=bad)
+    with pytest.raises(ValueError, match="Limits"):
+        run_agent(ad, FakeTools(), TASK, limits=bad)
     assert ad.calls == []
 
 
-def test_max_steps_is_required():
+def test_limits_are_required():
     with pytest.raises(TypeError):
         run_agent(adapter(text_response("x")), FakeTools(), TASK)  # type: ignore[call-arg]
 
@@ -43,13 +43,13 @@ def test_max_steps_is_required():
 def test_the_task_must_be_text(task):
     ad = adapter(text_response("x"))
     with pytest.raises(ValueError, match="task"):
-        run_agent(ad, FakeTools(), task, max_steps=3)
+        run_agent(ad, FakeTools(), task, limits=Limits(max_steps=3))
     assert ad.calls == []
 
 
 def test_an_empty_system_prompt_is_rejected():
     with pytest.raises(ValueError, match="system_prompt"):
-        run_agent(adapter(text_response("x")), FakeTools(), TASK, max_steps=3, system_prompt=" ")
+        run_agent(adapter(text_response("x")), FakeTools(), TASK, limits=Limits(max_steps=3), system_prompt=" ")
 
 
 # -- the happy paths ---------------------------------------------------------------------------------------------
@@ -250,7 +250,7 @@ def test_a_bug_in_the_adapter_is_not_hidden():
             raise ZeroDivisionError("bug")
 
     with pytest.raises(ZeroDivisionError):
-        run_agent(Broken(), FakeTools(), TASK, max_steps=3)
+        run_agent(Broken(), FakeTools(), TASK, limits=Limits(max_steps=3))
 
 
 # -- the observer -------------------------------------------------------------------------------------------------
