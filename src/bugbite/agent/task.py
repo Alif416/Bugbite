@@ -28,7 +28,8 @@ def _quoted(text: str, limit: int) -> tuple[str, bool]:
     return body, cut
 
 
-def format_issue_task(context: "JobContext") -> str:
+def format_issue_task(context: "JobContext", checks: str = "") -> str:
+    """The task text. `checks` is the pre-step section (P19), placed before the final instruction; "" leaves the task as it was."""
     issue = context.issue
     parts = [
         f"Repository: {_one_line(context.repo.full_name, 200)}",
@@ -58,6 +59,8 @@ def format_issue_task(context: "JobContext") -> str:
         parts.append(f"[... {hidden} more comments left out ...]")
     elif context.comments_truncated:
         parts.append("[... more comments exist but were not fetched ...]")
+    if checks.strip():
+        parts.append(checks.strip())
     parts.append(
         "Your job: find the cause of this bug in the repository and fix it with the smallest change that works. "
         "When you are done, reply with a short summary."
