@@ -491,3 +491,16 @@ ledger.total_usd, ledger.by_model(), ledger.snapshot()        # exact totals; sn
 ```
 
 Failed calls that reached the provider are recorded with their error code and no cost; requests refused locally before anything was sent are not calls. The ledger only measures. Spend caps are enforced in later phases (agent loop and spend control); `adapter.worst_case_cost(request)` gives them the most the next call could cost. Estimated token counts (from servers that report none) are flagged. Free models log tokens and time with cost 0.
+
+### Models without native tool calling (text-action fallback)
+
+A model configured with `native_tool_calling: false` (most small local and free models) still gets tools: `create_adapter` wraps it in `TextActionAdapter`, so the agent loop sees the same interface as for any other model. The model is told, in an instruction block added to the system prompt (`PROMPT_VERSION` is recorded for reproducibility), to answer every turn with **one JSON action**:
+
+```json
+{"tool": "read_file", "arguments": {"path": "src/app.py"}}
+{"final": "The bug was an off-by-one in parse(); fixed and tests pass."}
+```
+
+The wrapper finds the action in the reply (prose and code fences around it are ignored), checks the arguments against the tool's JSON Schema, and returns an ordinary tool call or text answer. A reply with no action, two different actions, broken JSON, an unknown tool, or invalid arguments gets **one repair attempt** that tells the model exactly what was wrong. If the repair also fails the step has failed: the response is a tool call named `invalid_action` with empty arguments and an `error`; the loop answers it with that error as the tool result and counts a failed step. Provider errors and refusals are never repaired.
+
+For cost and failure analysis: every model call, including a repair, is its own ledger entry (create the adapter with a ledger), the response carries the summed tokens and time for the step, and `adapter.stats` gives the number of tool steps, repaired steps, and failed steps. `adapter.max_calls_per_step` is 2. The method costs extra tokens (the instruction block on every call, longer history), which shows up in the model comparison; the integration method is reported per model as `text_action`. It has not yet been tried against a real model.

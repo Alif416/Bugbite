@@ -66,3 +66,11 @@ See `specs/decisions.md` AD-070 to AD-075.
 ## Decision log
 
 Architectural decisions for this phase are recorded in `specs/decisions.md` (AD-070 to AD-075).
+
+## Findings from the build (2026-11-01)
+
+- **Never tried against a real model.** Everything is verified with scripted replies, a mock server behind the OpenAI-compatible adapter, and seeded random replies. How well any actual small model follows the format, and how often it needs a repair, is unknown until a real free model is run (the live Groq check, or a local model). The counters (`stats`) and ledger entries are there to measure it.
+- A scanner weakness was found by the tests: after a failed outer object it decoded the inner arguments object and reported "no action" (see the AD-071 note).
+- Property tests over 3,000 seeded random replies (random text, corrupted and mutated valid actions, fenced and prose-wrapped ones) never raised, and every tool action returned satisfied its schema; the generator produces all three outcomes (hundreds of tool actions, final answers, and errors), so the property is not vacuous.
+- Seven properties were broken on purpose: schema validation skipped, a third model call after two failures, prose-only treated as a final answer, two different actions accepted, the passthrough for requests without tools removed, usage not summed, and `invalid_action` shown to the model as an action. Each made at least one test fail.
+- Cost of the method, for the comparison: the instruction block (1,852 characters for the six planned test tool shapes, roughly 460 tokens by the four-characters-per-token estimate; a real tokenizer will differ) is sent on every call and the text history is longer than a native one; a repaired step costs two calls. `adapter.max_calls_per_step` is 2, which cap logic should use when projecting the worst case.
