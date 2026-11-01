@@ -69,3 +69,13 @@ See `specs/decisions.md` AD-088 to AD-091.
 - Patch-size caps (FR6.5) are not enforced here.
 - Whether the issue is "about" a protected file is for the caller to decide; this phase only gives the caller the switch.
 - Output sizes are starting values to be tuned with real runs (P20).
+
+## Findings from the build
+
+- `conftest.py` is protected as configuration, not only as a test file: creating a new one changes how tests behave, so it is refused even when it does not exist yet.
+- An edit through a symlink is checked against the real file it points to, so an innocent-looking alias cannot be used to change a protected test; the tool also refuses to write through a link that leaves the repo.
+- Overwriting a file with the sandbox's `write_file` resets its mode to 0644, so the tool restores the original mode with `chmod`. Real Docker test: an executable script stays 755 and `git diff` shows no mode change.
+- The test fake gained `write_file` (which mimics the real mode reset and fails if a write leaves the repo) and a shell mode that only `run_command` may use, so "no other tool uses a shell string" is tested.
+- The `PATH` for `run_command` is a constant (`/workspace/.venv/bin:/usr/local/bin:/usr/bin:/bin`). Real Docker test confirms it is what the command sees.
+- Mutation check: 15 breakages (protection off, multiple matches, symlink containment, mode restore, network check, output cap, `-k` merged, skip guard, created-file memory, alias check, create-over-existing, tail cap, new conftest, same-text edit, timeout clamp) are all caught.
+- Not measured: whether the output sizes suit a real model (P20), and whether a small model can produce exact `old_text` reliably; the error messages are written to help it retry, but that is untested against a real model.
