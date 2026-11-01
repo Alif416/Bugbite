@@ -26,7 +26,7 @@ FR numbers refer to README.md section 5.
 
 ## Agent loop
 
-- [ ] **P14. Tools** — `read_file`, `list_directory`, `search_code` (grep) in the sandbox (FR5.2).
+- [x] **P14. Tools** — `read_file`, `list_directory`, `search_code` (grep) in the sandbox (FR5.2).
 - [ ] **P15. Tools** — `edit_file`, `run_tests`, `run_command` (FR5.2).
 - [ ] **P16. Minimal loop** — think, call tool, read result, repeat; no caps yet (FR5.3).
 - [ ] **P17. Hard caps** — max steps, cost, wall-clock; tested (FR5.4).

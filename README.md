@@ -527,3 +527,15 @@ Private code may only go to a model whose `allow_private_code` is `true` in `con
 **For entry points (CLI, API, GitHub trigger):** fetch the issue, call `check_job_privacy`, then pass the returned sensitivity to `create_adapter`. Build adapters only through `create_adapter`; a test fails if code outside `src/bugbite/adapter/` imports a concrete adapter.
 
 Not covered yet: private code stored in traces, recordings or the dashboard (later phases), and a remote endpoint wrongly marked `allow_private_code: true`.
+
+### Agent tools (read-only)
+
+The agent looks at the repository through three tools in `bugbite.agent.tools`. `build_read_only_tools(sandbox)` returns a `ToolRegistry`: `definitions()` gives the schemas to put in a model request (they work with native and text-action models), and `execute(name, arguments)` runs a call and returns a `ToolOutput(text, is_error)`; `.to_block(call_id)` turns it into the `ToolResultBlock` for the next turn. A bad call (unknown tool, wrong arguments, missing file, a tool crash) comes back as an error result for the model to react to and never raises. `TOOLS_VERSION` names the current tool text for recordings.
+
+| Tool | Does | Limits |
+|---|---|---|
+| `read_file(path, start_line?, end_line?)` | numbered lines | 200 lines and 20,000 characters per call, then says which `start_line` to use next; binary files and files over 1 MB are refused |
+| `list_directory(path?)` | one level, folders first (`/`), symlinks marked `@` | 200 entries, says how many were left out |
+| `search_code(pattern, path?, glob?, regex?)` | `path:line:text`, plain text unless `regex` | 50 matches of at most 200 characters; skips `.git`, `node_modules`, virtualenvs, caches and binary files |
+
+Paths are relative to the repo root. Absolute paths, `..` and `.git` are refused, and a symlink that leads outside the repo (or into `.git`) is refused too, because the path is resolved inside the container. Nothing is built into a shell string: model text only ever reaches the sandbox as a separate argument. The tools change nothing. The numbers above are starting values, to be tuned with real runs. Editing and running tools come in P15.

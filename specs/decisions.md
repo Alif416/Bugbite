@@ -696,3 +696,51 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The guard only protects adapters that are wrapped in it. Anyone constructing a `ClaudeAdapter` or `OpenAICompatibleAdapter` directly would get an unguarded path to the network, and a rule that depends on every future author remembering is not a rule. A test makes the shortcut fail immediately in CI.
 - **Alternatives:** Documentation only (forgotten under time pressure); making the concrete classes private (Python offers no real privacy, and tests need them).
 - **Consequences:** Tests inside the adapter package and the `tests/` folder may still build concrete adapters; new production code cannot.
+
+## AD-082: Agent tools run inside the sandbox
+
+- **Date:** 2026-11-01 · **Phase:** P14 · **Status:** Accepted
+- **Decision:** `read_file`, `list_directory` and `search_code` operate on the repo in the Docker sandbox using `Sandbox.run` and `Sandbox.read_file`. Host code never opens the repo's files for the agent.
+- **Why:** Repo content and file names are untrusted. Keeping every read inside the hardened container (no host mounts, no credentials) keeps the existing isolation story simple, and matches FR5.2.
+- **Alternatives:** Reading a host checkout (faster, easier tests, but a second copy of the repo outside the sandbox and a new path for hostile content).
+- **Consequences:** Each call costs a container exec; unit tests use a fake sandbox and real behaviour is checked in opt-in Docker tests.
+
+## AD-083: Tool output is capped, with a truncation notice
+
+- **Date:** 2026-11-01 · **Phase:** P14 · **Status:** Accepted
+- **Decision:** `read_file` returns at most 200 lines / 20,000 characters, `list_directory` 200 entries, `search_code` 50 matches of at most 200 characters each. When cut, the output says what was shown and how to ask for the rest.
+- **Why:** FR3.4 forbids dumping the repo into the prompt, and every token is paid for on every later turn. A notice lets a model recover instead of silently acting on partial data.
+- **Alternatives:** No caps (cost and context blow-ups); silent truncation (the model believes it saw everything).
+- **Consequences:** The numbers are starting values; P17/P19 measurements may change them.
+
+## AD-084: `search_code` uses grep in the sandbox, fixed-string by default
+
+- **Date:** 2026-11-01 · **Phase:** P14 · **Status:** Accepted
+- **Decision:** Search runs `grep -rnI` (with `-F` unless `regex` is true), excluded junk directories, and `--` before model-supplied text.
+- **Why:** No new dependency, runs next to the files, skips binaries. Fixed-string avoids models tripping on regex escaping and avoids pathological patterns by default.
+- **Alternatives:** A Python-side scan (reads far more through the sandbox); ripgrep (not in the image, would need installing).
+- **Consequences:** Slower than an index on huge repos; indexed search arrives with the retrieval phases.
+
+## AD-085: Tools are `Tool` objects returning `ToolOutput`, never raising into the loop
+
+- **Date:** 2026-11-01 · **Phase:** P14 · **Status:** Accepted
+- **Decision:** Each tool has a `ToolDefinition` and `run(arguments) -> ToolOutput(text, is_error)`. A registry validates arguments against the schema and turns unknown tools, bad arguments and unexpected exceptions into error results.
+- **Why:** Models make bad calls routinely; the useful response is an error message they can act on, and the loop (P16) should not need try/except around every tool. One schema layer serves native and text-action adapters.
+- **Alternatives:** Plain functions with schemas added in P16 (pushes the design to a later phase and risks two layers).
+- **Consequences:** The loop converts `ToolOutput` into `ToolResultBlock`.
+
+## AD-086: Tool paths are repo-relative, validated, and hide `.git`
+
+- **Date:** 2026-11-01 · **Phase:** P14 · **Status:** Accepted
+- **Decision:** Models pass paths relative to the repo root. Absolute paths, `..`, control characters and anything touching `.git` are rejected before reaching the sandbox.
+- **Why:** The container is already isolated, but a model must not wander to `/workspace/.venv`, other workspace files, or git internals (which hold remote URLs and history noise), and clear rejection teaches it the right form.
+- **Alternatives:** Trust the container only (less clear errors, more noise in context).
+- **Consequences:** Symlinks inside the repo that point outside are tested in Docker; reads go through the same checks.
+
+## AD-087: Paths are resolved and listed by a small Python script run inside the sandbox, not by `find`
+
+- **Date:** 2026-11-01 · **Phase:** P14 · **Status:** Accepted (changes the plan, which said `find`)
+- **Decision:** `list_directory` and the path check of all three tools call one fixed Python script in the container (`python -c SCRIPT root relative mode limit`) that resolves the path with symlinks followed, refuses anything outside the repo or inside `.git`, and returns JSON. `search_code` still runs `grep`.
+- **Why:** A host-side check cannot see symlinks, and a repo can contain a symlink to `/etc`; only code inside the container can resolve it. `find -printf` is GNU-only, so the same tool would behave differently on the developer's Mac, where the unit tests run, and file names with newlines break line-based output. A script gives exact types, NUL-safe names and one code path in both places. The script is a constant, and model text reaches it only as separate arguments.
+- **Alternatives:** `find`/`realpath -e` shell commands (non-portable, parsing fragile); doing it all host-side (blind to symlinks).
+- **Consequences:** Relies on `python` being in the sandbox image (it is: the sandbox is built for Python repos). Unit tests run the same script on the host through a folder-backed fake sandbox; Docker tests prove the real behaviour.
