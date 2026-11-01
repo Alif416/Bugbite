@@ -816,3 +816,35 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** A cut-off reply can contain a tool call whose arguments were cut in the middle, for example an `edit_file` with half of the new text. Running it could write a broken file, and the model has no chance to notice. Stopping is the honest result; P17 or a later retry policy can decide whether to ask the model to continue.
 - **Alternatives:** Run calls that parse (risky); ask the model to continue automatically (a policy and cost decision for later).
 - **Consequences:** A model with too small an output limit will end runs early; the status makes this visible.
+
+## AD-097: Limits are one `Limits` object, built from config by a helper; the cost cap is the lower of two config values
+
+- **Date:** 2026-11-01 · **Phase:** P17 · **Status:** Accepted (owner agreed)
+- **Decision:** `run_agent` takes `limits=Limits(max_steps, max_cost_usd, max_wall_clock_s, cost_margin)` instead of a `max_steps` argument. `limits_from_config(app, model)` fills it: steps and time from `config/app.yaml`, cost as the lower of `app.max_cost_usd` and the model's `per_issue_cap_usd`.
+- **Why:** There are two cost values in the config (a global job cap and a per-model cap) and the README asks for both ("hard cap per issue, set per model"). Combining them in one tested place means no caller can apply only one. A single object also gives later phases (batch caps, the CLI, evals) one thing to pass around and record. Costs are `Decimal`s built from text so `0.1` stays exact.
+- **Alternatives:** Separate keyword arguments (every caller combines the config values itself); keeping `max_steps` and adding more arguments (more places to forget one).
+- **Consequences:** The P16 `max_steps=` argument is gone (no callers outside tests yet). Config values the loader allows but a limit cannot use (zero steps, zero time) fail with a message naming the field.
+
+## AD-098: The cost cap is checked before every model call, using the worst case
+
+- **Date:** 2026-11-01 · **Phase:** P17 · **Status:** Accepted (owner agreed)
+- **Decision:** Before each model call the loop adds the worst case for that call to the job's spend and stops with `cost_cap` if the sum is above the cap. The worst case is the adapter's `worst_case_cost` (estimated prompt scaled by `cost_margin`, default 1.25, at the dearest rate; the full output limit at the output rate) multiplied by the model calls one step can make (`max_calls_per_step`, 2 for text-action models). After the call the loop checks the real spend again before running tools. A cost cap requires the ledger of a `MeteredAdapter` in the chain, checked before the first call.
+- **Why:** The README says the cap must stop the run and not the credit card. Checking only after a call lets a job overshoot by a whole call; checking before, with a deliberately pessimistic estimate, keeps the real spend under the cap unless the estimate itself is wrong, and the post-call check then catches that and says so. If cost cannot be measured the safe answer is to refuse to start, so a missing or unattached ledger is an error. The text-action repair is a second paid call inside one step, so it is counted.
+- **Alternatives:** Stop after the call that crosses the cap (simpler, can overspend); use only the typical cost (can overspend).
+- **Consequences:** Jobs may stop a little early because the worst case is pessimistic. The 1.25 margin is a guess to be calibrated with real usage (P20, P46). A reply that arrives over the cap but is a final answer is still returned as `finished`, with the overshoot reported, because the money is already spent and the answer is usable.
+
+## AD-099: The wall-clock cap is checked before every model and tool call, and tools get the time left
+
+- **Date:** 2026-11-01 · **Phase:** P17 · **Status:** Accepted (owner agreed)
+- **Decision:** The loop uses a monotonic clock started at the call. It checks the time before every model call and before every tool call. `run_command` and `run_tests` receive `time_limit_s` and use the smaller of their own limit and the time left, and are not started with less than a second left. Tool calls that cannot start are answered with a "not run" result and the run ends with `time_cap`. The clock is injectable for tests.
+- **Why:** The default time cap is 600 s but a full test run may take 300 s and a command 120 s. Checking only between steps would let a job overshoot by most of a cap; clamping the tools keeps the overshoot to what cannot be interrupted: one model call (bounded by the adapter's timeout) and one read-only tool call (at most 30 s). Answering skipped calls keeps the conversation valid for a recording or a later resume.
+- **Alternatives:** Check only between steps (simple, large overshoot); run the model call in a thread and abandon it at the deadline (a call that keeps running and costing money after the job has stopped is worse).
+- **Consequences:** Every tool now takes `time_limit_s`; a custom tools object without it would fail, which the loop reports as a tool error.
+
+## AD-100: `cost_cap` and `time_cap` are stop reasons, and the result reports cost, time and detail
+
+- **Date:** 2026-11-01 · **Phase:** P17 · **Status:** Accepted
+- **Decision:** `AgentResult` has the new statuses `cost_cap` and `time_cap`, plus `cost_usd`, `elapsed_s` and `limit_detail` (one sentence naming the limit, its value and what was used). When several limits are reached together, time wins over cost and cost over steps.
+- **Why:** Failure analysis (FR11) and the dashboard must tell "ran out of money" from "ran out of time" from "ran out of steps", and a person reading a report needs numbers, not just a label. A fixed order makes results reproducible.
+- **Alternatives:** One `limit_reached` status (loses the reason); reusing `model_error` (a cap is not an error).
+- **Consequences:** Anything switching on `status` must handle the new values.
