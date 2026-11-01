@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Callable, Collection, Iterable
 
 from bugbite.adapter.types import ToolDefinition
 from bugbite.errors import SandboxError
 
 from .base import Tool, ToolOutput, error
+from .edit_run import EditFile, RunCommand, RunTests
 from .read_only import ListDirectory, ReadFile, SearchCode
 
 
@@ -42,3 +43,12 @@ class ToolRegistry:
 
 def build_read_only_tools(sandbox: Any) -> ToolRegistry:
     return ToolRegistry([ReadFile(sandbox), ListDirectory(sandbox), SearchCode(sandbox)])
+
+
+def build_agent_tools(sandbox: Any, *, allowed_edit_paths: Collection[str] = (), test_runner: Callable[..., Any] | None = None) -> ToolRegistry:
+    """All six tools. `allowed_edit_paths` is for the calling code only, for an issue that is about a protected file."""
+    tests = RunTests(sandbox) if test_runner is None else RunTests(sandbox, test_runner)
+    return ToolRegistry([
+        ReadFile(sandbox), ListDirectory(sandbox), SearchCode(sandbox),
+        EditFile(sandbox, allowed_edit_paths), tests, RunCommand(sandbox),
+    ])
