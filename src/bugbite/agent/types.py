@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Callable, Union
 
 from bugbite.adapter.types import GenerationResponse, Message, ToolCallBlock, Usage
@@ -18,8 +19,10 @@ EMPTY_REPLY = "empty_reply"
 UNEXPECTED_STOP = "unexpected_stop"
 MODEL_ERROR = "model_error"
 PRIVACY_BLOCKED = "privacy_blocked"
+COST_CAP = "cost_cap"  # the cost limit would be (or was) passed
+TIME_CAP = "time_cap"  # the wall-clock limit was reached
 ALL_STATUSES = frozenset(
-    {FINISHED, MAX_STEPS, TRUNCATED, REFUSED, EMPTY_REPLY, UNEXPECTED_STOP, MODEL_ERROR, PRIVACY_BLOCKED}
+    {FINISHED, MAX_STEPS, TRUNCATED, REFUSED, EMPTY_REPLY, UNEXPECTED_STOP, MODEL_ERROR, PRIVACY_BLOCKED, COST_CAP, TIME_CAP}
 )
 
 
@@ -52,6 +55,9 @@ class AgentResult:
     error_code: str | None = None
     error_message: str | None = None
     observer_errors: int = 0
+    cost_usd: Decimal | None = None  # what this job cost (None when no ledger was given)
+    elapsed_s: float = 0.0
+    limit_detail: str | None = None  # one sentence about the limit that stopped the run, or was passed
 
     def __post_init__(self) -> None:
         if self.status not in ALL_STATUSES:

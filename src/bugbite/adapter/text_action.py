@@ -337,6 +337,10 @@ class TextActionAdapter(ModelAdapter):
         if callable(close):
             close()
 
+    @property
+    def inner(self) -> ModelAdapter:
+        return self._inner
+
     def estimate_tokens(self, request: GenerationRequest) -> int:
         """The size of what is actually sent, including the instruction block."""
         return self._inner.estimate_tokens(text_request(request) if request.tools else request)
