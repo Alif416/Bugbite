@@ -12,6 +12,7 @@ from bugbite.adapter.registry import (
     registered_providers,
     unregister_adapter,
 )
+from bugbite.adapter.text_action import INVALID_ACTION, PROMPT_VERSION, TextActionAdapter, TextActionStats, parse_action
 from bugbite.adapter.types import (
     ROLE_ASSISTANT,
     ROLE_USER,
@@ -37,6 +38,11 @@ from bugbite.adapter.types import (
 
 __all__ = [
     "Block",
+    "INVALID_ACTION",
+    "PROMPT_VERSION",
+    "TextActionAdapter",
+    "TextActionStats",
+    "parse_action",
     "CallCost",
     "CallRecord",
     "CostLedger",
