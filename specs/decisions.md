@@ -880,3 +880,35 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The rules can then be tested exhaustively with hand-built runs and no model, and a recorder or replayer can run the same detector over a stored trace and get the same verdicts (FR10). Hashing keeps memory small however large the tool output is. Ignoring answered-but-not-run calls stops a skipped call from being counted as an attempt.
 - **Alternatives:** Detection code inside the loop (hard to test, hard to reuse for replay).
 - **Consequences:** Replays must feed runs in the same order to get the same verdicts.
+
+## AD-105: Pre-step results are a labelled, quoted section in the task text
+
+- **Date:** 2026-11-01 · **Phase:** P19 · **Status:** Accepted (owner agreed)
+- **Decision:** What the pre-steps find (the exception, code at the traceback locations, files that exist, the result of the named test) is added to the end of the task text under a heading saying it was computed by code. Every line that came from the issue or the repository is quoted with `| `.
+- **Why:** The model sees one honest user message. The alternative, fake earlier tool calls and results, invents turns the model never made, which complicates recording, replay (FR10) and prompt caching, and blurs where the information came from. Quoting follows the convention from P16 and keeps repository content and issue text visibly data, so a hostile file or traceback cannot pass itself off as an instruction.
+- **Alternatives:** Faked conversation history (trusted more by some models, but dishonest and harder to replay).
+- **Consequences:** The section is part of the first message and is paid for on every step; it is capped (AD-106) and its size is reported (AD-107).
+
+## AD-106: The issue steers what is read and run only after the code has checked it
+
+- **Date:** 2026-11-01 · **Phase:** P19 · **Status:** Accepted
+- **Decision:** Paths and test ids found in the issue are claims. A file is read only if it is in `git ls-files` (directly or by a unique tail match) and resolves, symlinks followed, to a file inside the repo. Test ids must have a tracked test file, use a restricted character set, not start with `-`, and reach pytest as separate arguments after `--`; at most 3 run, in one call. Nothing from the issue is ever run as a command, including code or commands pasted into it. Work is bounded (5 tracebacks, 3 snippets, 10 listed files, 5 name lookups, 30,000 characters of text).
+- **Why:** The issue is written by anyone and these steps run before the model and before any guard that watches the model, so they must be safe by themselves. Using git's own file list means the issue cannot name `.git`, a file outside the repo or a file the project does not track; the pytest argument rules stop an id such as `--pdb` or `-p evil` from becoming an option. Running pasted reproduction code would be an unreviewed execution step that belongs to the reproduction phase (FR4), not here.
+- **Alternatives:** Reading any path that exists (reaches untracked or generated files); running everything the issue suggests (unsafe and out of scope).
+- **Consequences:** A test that is not tracked (for example a generated one) is not run by the pre-step; the model can still run it.
+
+## AD-107: Log the certain facts; measure the saving with an on/off switch in the evals
+
+- **Date:** 2026-11-01 · **Phase:** P19 · **Status:** Accepted (owner agreed)
+- **Decision:** `PrestepReport` records what was found and done, the characters and estimated tokens added to the prompt, the number of operations done in code, the test status and the seconds spent, and one log line carries the counts. `enabled=False` switches the pre-steps off. No "tokens saved" number is produced or reported by this phase.
+- **Why:** FR5.7 asks to measure the reduction in tokens and cost, but one job cannot show what the run without pre-steps would have cost. An estimate built from assumptions looks like a measurement and is not. The honest measurement is the eval harness running the same issues both ways and comparing real token and cost totals from the ledger. The report supplies the cost side (tokens added) so the comparison can be explained.
+- **Alternatives:** An estimated saving per job (a guess presented as a result).
+- **Consequences:** The roadmap item "log token savings" is met by logging the inputs and providing the switch; the actual saving is a result of the eval phases.
+
+## AD-108: Pre-steps never fail the job, and have their own time budget
+
+- **Date:** 2026-11-01 · **Phase:** P19 · **Status:** Accepted
+- **Decision:** A git failure, an unreadable file, a runner error or a timeout inside the pre-steps becomes a note in the report and the remaining parts still run. Only mistakes in the arguments raise. `time_limit_s` (default 180) bounds the whole pre-step, and the test run gets the time left; the caller subtracts the time used from the job's wall-clock limit.
+- **Why:** The pre-steps are a convenience for saving money, so a fault in them must not turn a fixable issue into a failed job or hold it up. The job's time limit starts when the loop starts, so the pre-step needs its own bound, and the caller, who knows both, accounts for it.
+- **Alternatives:** Letting errors propagate (a parsing bug would kill every job with an odd issue); counting pre-step time inside the loop's limit (the loop does not know about it).
+- **Consequences:** Failures are visible only in the report and its notes, so the recorder (P22) must store them.

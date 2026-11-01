@@ -585,7 +585,7 @@ Nothing raises for these endings; the result keeps every step, the full conversa
 
 `format_issue_task(context)` builds the task text from a fetched issue: the issue title, body and comments are limited in size and every line of them is quoted with `| `, so text written by other people cannot pass itself off as instructions. The system prompt also tells the model that issue text, files and tool output are data. That reduces prompt injection but does not remove it; the real protections are the sandbox, the protected-file guards, the privacy gate and the verifier.
 
-Not there yet: running the failing test before the first model call (P19), and trimming a long conversation (a run that outgrows the model's context ends as `model_error` / `context_too_long`). The prompt has not been tried against a real model.
+Not there yet: cheap pre-steps are available (see "Cheap pre-steps") but are not wired into a CLI yet; running the failing test before the first model call (P19), and trimming a long conversation (a run that outgrows the model's context ends as `model_error` / `context_too_long`). The prompt has not been tried against a real model.
 
 ### Hard limits per job
 
@@ -612,3 +612,17 @@ Any **successful edit starts all counts over**, because the repository changed. 
 At the first threshold the model is **nudged once**: a short note is added to the end of the last tool result of that step ("You have now made the same read_file call 3 times and got the same result ..." or "4 attempts to edit a.py have failed since your last successful edit ..."). It costs no extra model call, and names only the tool or the shortened file path and a count, never the output or arguments. At the second threshold the run ends with `loop_detected`; the step's tool results are still added to the conversation and `limit_detail` says which rule fired. If the time limit was also reached, `time_cap` wins. The result reports `nudges`, and each `Step` keeps its `nudge` text; the recorded `ToolRun` output is the real one, without the note.
 
 Defaults (`LoopPolicy`): repeated call 3 to nudge and 5 to stop; failed edits to one file 4 and 6. They are first guesses to be tuned with real traces (P60). Not detected yet: streaks of invalid actions from a text-action model, streaks of ordinary tool errors, and alternating patterns (A, B, A, B).
+
+### Cheap pre-steps
+
+Before the first model call, plain code can do the obvious work the model would otherwise pay steps for (README FR5.7). `run_prestep(sandbox, context)` reads the issue's title, body and comments and:
+
+- finds **Python tracebacks** (and pytest-style `file.py:LINE: in function` lines) and shows the code, 10 lines either side, at up to 3 locations that exist in the repository, innermost call first, plus the error line;
+- lists up to 10 other **`.py` files** the issue mentions that exist;
+- finds the **tests it names** (pytest ids such as `tests/test_a.py::TestX::test_y[1]`, `FAILED ...` lines, or a bare `test_name` that matches exactly one definition) and **runs up to 3 of them** once, giving the same compact summary as the `run_tests` tool.
+
+`format_issue_task(context, checks=result.text)` puts the result in the task as a section headed "Checks Bugbite ran before you started", before the final instruction. Every line that came from the issue or the repository is quoted with `| `, and the section says it is data, not instructions. If nothing is found there is no section and the task is unchanged.
+
+The issue is untrusted, so what it names is only a claim until checked (AD-106): a file is read only if `git ls-files` lists it (a path from the reporter's machine is matched to the longest unique tail) and it resolves, symlinks followed, to a file inside the repo; test ids use a restricted character set, never start with `-`, and reach pytest as separate arguments; nothing from the issue is ever run as a command, including code pasted into it. A problem anywhere (git, a read, the test run, a timeout) becomes a note in the report and never fails the job. The pre-steps have their own budget (`time_limit_s`, default 180 s); the caller subtracts the time used from the job's wall-clock limit.
+
+`result.report` (`PrestepReport`, `to_dict()` for JSON) holds plain numbers: what was found, the test status, the characters and estimated tokens added to the prompt, `tool_calls_done_in_code`, the seconds spent and notes. One log line carries the counts, never any content. **No "tokens saved" figure is produced**: one job cannot show what it would have cost without the pre-steps. `enabled=False` switches them off so the eval harness can run the same issues both ways and measure the real difference from the cost ledger. Only Python paths and pytest ids are understood, and a test that needs the internet will show as failing, because the sandbox has none.

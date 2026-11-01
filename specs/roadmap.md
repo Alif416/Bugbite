@@ -31,7 +31,7 @@ FR numbers refer to README.md section 5.
 - [x] **P16. Minimal loop** — think, call tool, read result, repeat; no caps yet (FR5.3). Only a required `max_steps`; the system prompt has not been tried on a real model.
 - [x] **P17. Hard caps** — max steps, cost, wall-clock; tested (FR5.4). Per-job only; the cost margin (1.25) is a guess to calibrate with real runs; batch/model/project caps are P46.
 - [x] **P18. Loop detection** — repeated failed edits change strategy or stop (FR5.5). Two exact rules, nudge then stop; thresholds are guesses for P60; invalid-action and generic error streaks are not detected.
-- [ ] **P19. Cheap pre-steps** — parse tracebacks/paths from issue, run named failing test, feed as context; log token savings (FR5.7).
+- [x] **P19. Cheap pre-steps** — parse tracebacks/paths from issue, run named failing test, feed as context; log token savings (FR5.7). Logs the inputs to a comparison and has an on/off switch; the actual saving is measured later by the eval harness (AD-107). Not wired into a CLI yet (P45).
 - [ ] **P20. First end-to-end fix** — one hand-picked issue, free model, patch printed locally (no PR yet).
 
 ## Trace and record/replay (early, so everything after is cheap to test)
