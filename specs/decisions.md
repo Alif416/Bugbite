@@ -85,3 +85,37 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Branch name matches `specs/<folder>` so spec and code are easy to connect. A merge commit keeps the small logical commits and shows where each phase landed.
 - **Alternatives:** Squash (loses commit detail); fast-forward (no marker of the feature boundary).
 - **Consequences:** `main` history has merge commits.
+
+---
+
+## AD-011: Defer the "Python-only" repo check from P2 to P3
+
+- **Date:** 2026-11-01 · **Phase:** P2 · **Status:** Accepted
+- **Decision:** P2 validates URL shape only. Rejecting non-Python repos (FR1.4) moves to P3 with the GitHub API access check.
+- **Why:** Knowing a repo's language requires a network call and a token. Keeping P2 offline keeps it small, deterministic, and free of secrets (roadmap asks for very small phases). The owner chose this option.
+- **Alternatives:** Do the language check in P2 (pulls network and token handling forward, mixes two concerns).
+- **Consequences:** Until P3 lands, a non-Python repo passes P2 validation. Nothing runs against it yet, so this is safe.
+
+## AD-012: Typed `InputError` with a stable code and message
+
+- **Date:** 2026-11-01 · **Phase:** P2 · **Status:** Accepted
+- **Decision:** Validation failures raise `InputError(code, message)`; codes are constants such as `INVALID_URL` and `REPO_MISMATCH`.
+- **Why:** The CLI, API, and dashboard each need to present errors differently. A stable code lets each map its own output (HTTP 422, CLI exit code, UI text) without parsing message strings. Separate from `ConfigError` because one is bad user input and the other is bad system setup. The owner chose this option.
+- **Alternatives:** Result objects without exceptions (more verbose at every call site); reusing `ConfigError` (mixes user and operator errors).
+- **Consequences:** Callers must catch `InputError`. New failure kinds need a new code.
+
+## AD-013: Offline, stdlib-only URL parsing with strict allow-listing
+
+- **Date:** 2026-11-01 · **Phase:** P2 · **Status:** Accepted
+- **Decision:** Parse with `urllib.parse` and `re`; accept only `github.com` and `www.github.com`; validate owner and repo names against GitHub's allowed characters; no network, no new dependencies.
+- **Why:** The parsed values later feed `git clone` and API calls inside jobs, so loose parsing is a security risk (path traversal, argument injection, look-alike hosts such as `github.com.evil.io`). Strict allow-listing in one place protects every later phase (mission principle 4). Stdlib keeps the dependency list unchanged.
+- **Alternatives:** Third-party URL libraries (extra dependency, no benefit); permissive parsing with later sanitising (risk spreads across modules).
+- **Consequences:** GitHub Enterprise and other hosts are unsupported until a decision to add them.
+
+## AD-014: Issue URL plus repo URL as the only input form in v1 of the parser
+
+- **Date:** 2026-11-01 · **Phase:** P2 · **Status:** Accepted
+- **Decision:** `parse_job_input(issue_url, repo_url)` requires both and checks they refer to the same repo. "Issue URL only" and "issue text + repo URL" are not supported yet.
+- **Why:** One clear form matches the README's primary input and the owner's choice. The mismatch check stops a job from fetching an issue from one repo and fixing another.
+- **Alternatives:** Derive the repo from the issue URL (simpler to use, but a second form to test); free-text issues (needs a separate input path).
+- **Consequences:** Other forms can be added later as separate functions without changing `parse_job_input`.
