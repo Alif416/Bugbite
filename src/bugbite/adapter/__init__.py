@@ -1,1 +1,59 @@
-"""Model adapter: one interface over Claude and OpenAI-compatible models."""
+"""Model adapter: one provider-neutral interface for talking to any model."""
+
+from bugbite.adapter.base import ModelAdapter, estimate_tokens, validate_request
+from bugbite.adapter.registry import (
+    create_adapter,
+    register_adapter,
+    registered_providers,
+    unregister_adapter,
+)
+from bugbite.adapter.types import (
+    ROLE_ASSISTANT,
+    ROLE_USER,
+    SCHEMA_VERSION,
+    STOP_END_TURN,
+    STOP_MAX_TOKENS,
+    STOP_OTHER,
+    STOP_REASONS,
+    STOP_SEQUENCE,
+    STOP_TOOL_USE,
+    Block,
+    GenerationRequest,
+    GenerationResponse,
+    Message,
+    SchemaError,
+    TextBlock,
+    ToolCallBlock,
+    ToolDefinition,
+    ToolResultBlock,
+    Usage,
+)
+
+__all__ = [
+    "Block",
+    "GenerationRequest",
+    "GenerationResponse",
+    "Message",
+    "ModelAdapter",
+    "ROLE_ASSISTANT",
+    "ROLE_USER",
+    "SCHEMA_VERSION",
+    "STOP_END_TURN",
+    "STOP_MAX_TOKENS",
+    "STOP_OTHER",
+    "STOP_REASONS",
+    "STOP_SEQUENCE",
+    "STOP_TOOL_USE",
+    "SchemaError",
+    "TextBlock",
+    "ToolCallBlock",
+    "ToolDefinition",
+    "ToolResultBlock",
+    "Usage",
+    "create_adapter",
+    "estimate_tokens",
+    "register_adapter",
+    "registered_providers",
+    "unregister_adapter",
+    "validate_request",
+]
