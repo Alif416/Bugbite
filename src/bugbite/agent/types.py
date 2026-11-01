@@ -21,8 +21,9 @@ MODEL_ERROR = "model_error"
 PRIVACY_BLOCKED = "privacy_blocked"
 COST_CAP = "cost_cap"  # the cost limit would be (or was) passed
 TIME_CAP = "time_cap"  # the wall-clock limit was reached
+LOOP_DETECTED = "loop_detected"  # the agent kept repeating itself after a nudge
 ALL_STATUSES = frozenset(
-    {FINISHED, MAX_STEPS, TRUNCATED, REFUSED, EMPTY_REPLY, UNEXPECTED_STOP, MODEL_ERROR, PRIVACY_BLOCKED, COST_CAP, TIME_CAP}
+    {FINISHED, MAX_STEPS, TRUNCATED, REFUSED, EMPTY_REPLY, UNEXPECTED_STOP, MODEL_ERROR, PRIVACY_BLOCKED, COST_CAP, TIME_CAP, LOOP_DETECTED}
 )
 
 
@@ -43,6 +44,7 @@ class Step:
     index: int  # 1-based
     response: GenerationResponse
     tool_runs: tuple[ToolRun, ...] = ()
+    nudge: str | None = None  # the loop-detection note added to this step's last tool result, if any
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,7 @@ class AgentResult:
     cost_usd: Decimal | None = None  # what this job cost (None when no ledger was given)
     elapsed_s: float = 0.0
     limit_detail: str | None = None  # one sentence about the limit that stopped the run, or was passed
+    nudges: int = 0  # how many times loop detection told the model it was repeating itself
 
     def __post_init__(self) -> None:
         if self.status not in ALL_STATUSES:
