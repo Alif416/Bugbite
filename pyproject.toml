@@ -5,6 +5,7 @@ description = "An autonomous issue-fixing agent that opens evidence-backed pull 
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "httpx>=0.28.1",
     "pyyaml>=6.0",
 ]
 
