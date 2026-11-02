@@ -720,3 +720,29 @@ print(render_symbols(index.find("parse"), max_lines=20))
 - **Bounded:** `IndexLimits` caps files, symbols, file size, output size and depth; when one is hit, `index.truncated` says which and `index.complete` is false. Rendering is capped in lines and says how much was left out. The index converts to and from JSON (`to_json` / `from_json`, schema version 1).
 
 Not built: ranking and "why this file" (P26), embeddings (P27), other languages, imports and call graphs, incremental updates, an agent tool.
+
+## Ranking candidate files
+
+`rank_files(issue_text, index)` says which files of a repository an issue probably concerns, and why (README FR3.3, FR3.4). It is plain code over the issue text and the code index: no model call, no embeddings (P27), no network. Nothing in the agent uses it yet (wiring comes with the runner, P45).
+
+```python
+from bugbite.retrieval import build_index, rank_files, render_ranking
+ranking = rank_files(issue_text, build_index(sandbox))          # at most 10 files, best first
+print(render_ranking(ranking, max_chars=2000))                  # short text for a prompt
+ranking.candidates[0].reasons                                   # the evidence, with points
+```
+
+Signals (each gives named reasons with points, and has its own cap; the weights are constants in `retrieval/signals.py`):
+
+| Signal | What counts |
+| --- | --- |
+| Traceback | A frame that maps to a repo file; the innermost frame in the repo counts most. Library frames are ignored. |
+| Named path | A file path written in the issue that maps to exactly one tracked file. |
+| Named test | The test file (a little) and the source file it most plausibly covers (more). |
+| Symbol | A function, class or method named in the issue (backticks, `CamelCase`, `snake_case`, `name()`, `Class.method`); rarer names count more, names defined in more than 8 places are ignored. |
+| Words | Issue words that appear in a file's path, symbol names or docstrings, weighted by rarity; only the three strongest count. A one-word module name mentioned in the issue adds a little. |
+
+Test files rank below source files unless the issue names them. A file needs at least 1 point to be listed. Each candidate's score is the exact sum of its reasons' points, and it lists the matched symbols with their line ranges. If the issue links to nothing, the result is empty with a note; an incomplete index or a cut issue text adds a note. Work is bounded and linear in the text and the index, so a huge or hostile issue cannot make it slow (the tests try a megabyte of junk). `render_ranking` never exceeds `max_chars`, cuts only between whole lines, and says how many files were left out. A `Ranking` converts to and from JSON.
+
+Not built: embeddings and semantic search (P27), code snippets in the result, git history, learned weights, showing the ranking to the agent. The weights are judgement; they were set by reasoning and checked on fixture issues and on four issues written for this repository, and they need real issues to tune further.
+

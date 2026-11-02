@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from .ranking_types import Ranking
 from .types import RepoIndex, Symbol
 
 MAX_LINE_CHARS = 200
@@ -63,3 +64,39 @@ def render_symbols(symbols: Iterable[Symbol], max_lines: int = 50) -> str:
     if len(shown) < len(items):
         lines.append(f"... and {len(items) - len(shown)} more symbols")
     return "\n".join(lines)
+
+
+def render_ranking(ranking: Ranking, max_chars: int = 2000) -> str:
+    """The ranked files with their reasons, never longer than `max_chars`, cut only between whole lines."""
+    if type(max_chars) is not int or max_chars < 100:
+        raise ValueError("max_chars must be at least 100")
+    blocks: list[list[str]] = []
+    for number, c in enumerate(ranking.candidates, 1):
+        lines = [_clip(f"{number}. {c.path}  (score {c.score:g})")]
+        lines += [_clip(f"   - {r.text}") for r in c.reasons if r.points > 0 or r.kind == "test_file"]
+        if c.symbols:
+            lines.append(_clip("   symbols: " + "; ".join(f"{h.qualname} {h.line}-{h.end_line}" for h in c.symbols)))
+        blocks.append(lines)
+    out: list[str] = []
+    used = 0
+    shown = 0
+    for lines in blocks:
+        size = sum(len(line) + 1 for line in lines)
+        if used + size > max_chars - 60:  # leave room for the closing line
+            break
+        out.extend(lines)
+        used += size
+        shown += 1
+    left = len(blocks) - shown
+    if left:
+        out.append(f"... and {left} more candidate files not shown")
+    out.extend(_clip(f"note: {n}") for n in ranking.notes)
+    text = "\n".join(out)
+    if len(text) > max_chars:  # notes can push it over; drop whole trailing lines
+        kept = []
+        for line in out:
+            if sum(len(k) + 1 for k in kept) + len(line) > max_chars:
+                break
+            kept.append(line)
+        text = "\n".join(kept)
+    return text
