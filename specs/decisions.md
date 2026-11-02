@@ -976,3 +976,35 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** A recording is a record, not part of the work: a full disk must not turn a paid, fixable run into a failure. As in the trace store (AD-116), complete content is what makes replay, regression tests and analysis possible, the files are local and owner-only, and the sensitivity label lets later exports refuse private content. The model key must never be written even if a model or a provider message echoes it.
 - **Alternatives:** Raising on write errors (an outage costs jobs); redacting private jobs (no replay of private runs).
 - **Consequences:** Anything that copies or exports recordings must check `sensitivity`. Recordings of private repos are private code on disk.
+
+## AD-121: Replay runs the current agent code against the recorded model answers
+
+- **Date:** 2026-11-02 · **Phase:** P23 · **Status:** Accepted (owner agreed)
+- **Decision:** `replay` takes the recorded facts that are data (task, model config, sensitivity, limits, loop-detection policy) from the manifest and the recorded provider answers and tool results from the events, and runs today's system prompt, tool definitions and loop code against them. There is no mode that restores an old prompt or tool text.
+- **Why:** The use FR10.3 names first is regression tests of the pipeline: a change to the prompt, a tool description or the loop should show up as an exact difference when old recordings are replayed. That is only possible if the current code runs. Reading an old run as it was needs no re-execution at all, since the recording can be read with the loader. Not storing the prompt text and tool definitions keeps the recording format as it is.
+- **Alternatives:** An exact old-run mode with a snapshot of the prompt and tools in every manifest (more to build and store, and it would not test the current code).
+- **Consequences:** After a deliberate change to the prompt or tools, old recordings replay with a reported difference and must be re-recorded to serve as regression tests again. Tests that need a stable prompt pass their own.
+
+## AD-122: A replay stops at the first difference and says exactly what it is
+
+- **Date:** 2026-11-02 · **Phase:** P23 · **Status:** Accepted (owner agreed)
+- **Decision:** A request that does not match its recorded fingerprint, a tool call that does not match the recorded one, more calls than were recorded, or a recorded bug in the provider ends the replay at once with a `ReplayDivergence` that names the kind, the call, the differing fingerprint fields and, when the recording kept the full request, the path of the first differing value. When no difference stops it, the replayed events are compared with the recorded ones afterwards and any difference is listed.
+- **Why:** After the agent asks something different, the recorded answers belong to other questions, so every later step is noise. A single exact report is more useful than a long list of consequences, and stopping immediately keeps a replay free of invented behaviour. The after-run comparison catches changes the request check cannot see, such as a changed nudge text or a different final answer.
+- **Alternatives:** Continue and list every difference (mostly knock-on noise).
+- **Consequences:** Finding a second, independent difference means fixing the first and replaying again.
+
+## AD-123: Replay time is virtual, driven by the recorded timestamps
+
+- **Date:** 2026-11-02 · **Phase:** P23 · **Status:** Accepted
+- **Decision:** `ReplayClock` starts at 0 and is set to a recorded event's time whenever that event is served, never going backwards. The loop's wall-clock checks, elapsed time and, with a small change to the loop, the measured duration of every tool call use the clock the caller injects. Retry waits (when that layer exists) advance the same clock instead of sleeping.
+- **Why:** Time limits are decisions the loop makes, so a replay must see the same times the original did or a recorded `time_cap` could not be reproduced and two replays could differ. Real time would make every replay slightly different (FR10.5). The recorded times are the only record of how long things took.
+- **Alternatives:** Real time (non-deterministic); ignoring wall-clock limits (a recorded time cap would end in a spurious "recording exhausted").
+- **Consequences:** Replayed elapsed times equal across replays but can differ from the recorded `elapsed_s` by the few milliseconds between the writer starting and the loop starting; a limit crossed within that margin could replay differently.
+
+## AD-124: Replay plugs in at the provider boundary and rebuilds the whole chain above it
+
+- **Date:** 2026-11-02 · **Phase:** P23 · **Status:** Accepted
+- **Decision:** `create_adapter` gains `provider_adapter=`, used in place of the provider built from the registry. The replay builds the same layers the original run had: text-action when the model lacks native tool calling, metering with a fresh ledger, the privacy guard with the recorded sensitivity, and a recording layer writing to memory, all above the replay provider. A manifest that records settings this version cannot rebuild (a retry policy, until that layer is merged) is refused.
+- **Why:** Everything above the provider is deterministic code that should be exercised again, including cost tracking, the repair calls of text-action models and the privacy rule, so a replay is a real test of them. Recording the replay again in memory gives an honest comparison with the original, because the replayed events come from the replayed chain. A manifest with unsupported settings would otherwise give a replay that quietly differs from the run.
+- **Alternatives:** Replaying at the loop (skips the upper layers and their failure paths).
+- **Consequences:** Anything that adds a layer to the chain must also teach the replay to build it, or refuse recordings that used it.
