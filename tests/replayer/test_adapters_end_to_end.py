@@ -41,7 +41,7 @@ def test_provider_errors(tmp_path, side, status):
 def test_two_tool_calls_in_one_reply(tmp_path, side):
     tools = FakeTools()
     check(tmp_path, side, [lambda s: s.tool_turn([ECHO_CALL, ("echo", {"text": "again"})]), lambda s: s.answer()], tools=tools)
-    assert len(tools.executed) == 2
+    assert [a["text"] for _, a in tools.executed] == ["hi", "again"]  # in the order the provider gave them
 
 
 @pytest.mark.parametrize("side", BOTH)

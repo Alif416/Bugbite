@@ -35,4 +35,8 @@ The recorder (P22) and replayer (P23) work on Bugbite's neutral request and resp
 
 ## Findings
 
-(Filled in during the build.)
+- **No adapter, recorder or replayer defect was found.** Every scenario replayed `identical` once the tests used the right text-action reply format (`{"final": ...}`).
+- **Mutation check:** six breakages (Claude cache marker dropped, Claude tool-call id mapping, Claude cache-write usage, OpenAI usage mapping, OpenAI tool calls reversed, recorder skipping error responses). One survived at first: reversed tool calls, because a test only counted the executed calls; it now checks their order.
+- **The agent loop never sets a cache marker** (`TextBlock.cache`), so a loop run cannot show markers. The cache-marker test therefore calls the recording chain directly with `explicit` caching, and shows the marker reaches Claude's request and changes the recorded fingerprint. Cache *tokens* are covered through a full run.
+- **Adapters measure latency with the real clock**, so recordings made through them are not byte-reproducible by themselves; the golden builder fixes the clock (AD-127). Replay is unaffected, since it serves the recorded latency.
+- The key (`sk-...`) is sent in the adapter's request header but appears in no recording file.

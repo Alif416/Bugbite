@@ -2,7 +2,7 @@
 
 Branch: `2026-11-02-p24-replay-both-adapters`. See `requirements.md` and `validation.md`. Decisions: `specs/decisions.md` (AD-127 onward).
 
-## 1. Test support (`tests/replayer/adapters/`)
+## 1. Test support (built in `tests/replayer/`, files `real_adapter_helpers.py`, `test_adapters_*.py`, `make_adapter_goldens.py`; the planned `adapters/` subfolder was not needed)
 
 1. `real_adapter_helpers.py`: for each provider, a factory that builds the real adapter on `httpx.MockTransport` (Claude through the SDK's `http_client`, OpenAI-compatible through `client=`), registered under the real provider name for the duration of a test and restored afterwards. A reply script (list of canned HTTP replies, or callables) shared by both.
 2. A `record_real(tmp_path, provider, replies, ...)` helper like P23's `record`: it builds the chain with `create_adapter(..., recorder=...)`, runs the loop with scripted tools, returns the result and recording path.
