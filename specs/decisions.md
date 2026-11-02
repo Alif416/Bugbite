@@ -1025,3 +1025,11 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Alternatives:** Add the setting to the manifest (a format change, and a version bump for one field); ignore it (false differences for any run that set it).
 - **Consequences:** A recording with no model call (a privacy refusal) uses the loop's default, which cannot matter because no request was sent. A later format version should record it directly.
 
+## AD-127: Replay is proven for each provider by running the real adapter on canned HTTP, and a golden recording per adapter pins it
+
+- **Date:** 2026-11-02 · **Phase:** P24 · **Status:** Accepted (owner chose it)
+- **Decision:** The proof that record and replay work for both adapters (FR14.7) runs the real `ClaudeAdapter` and `OpenAICompatibleAdapter` on a mock HTTP transport, passes them to `create_adapter(..., provider_adapter=..., recorder=...)`, records the run, replays it and expects `identical`. One small recording per adapter is committed as a golden fixture and rebuilt byte for byte by a test.
+- **Why:** Replay works on neutral types, so a scripted adapter could not show that the real translation code (tool-call ids, usage and cache fields, finish reasons, error mapping) records and replays cleanly. Canned HTTP exercises that code with no network, key or cost. The goldens make a later change to an adapter's neutral output fail loudly instead of silently changing what recordings mean.
+- **Alternatives:** Scripted adapters with each provider's config (never runs the translation code); live runs per provider (need keys and spend quota or money, and are not repeatable).
+- **Consequences:** The adapters measure latency from the real clock, so the golden builder replaces the `time` module seen by the two adapter modules with a fixed one; tool-call ids in the goldens come from a counter the builder resets. Live recordings stay covered only by the existing opt-in live tests.
+

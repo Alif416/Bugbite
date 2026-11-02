@@ -39,7 +39,7 @@ FR numbers refer to README.md section 5.
 - [x] **P21. Trace store** — save every model call, tool call, result, tokens, cost, time to Postgres (FR8.1). Store, recorder and tests are built; not yet wired into the runner or CLI (P20 is on hold, P45); no access control on private traces yet.
 - [x] **P22. Recorder** — structured on-disk recording with model, prompt version, config, commit hash (FR10.1, FR10.4). Recording is at the raw provider boundary; replay is P23; not yet wired into the runner or CLI (P20 on hold, P45).
 - [x] **P23. Replayer** — deterministic offline replay; same recording twice gives same result (FR10.2, FR10.5). Replays the current code against the recorded answers on a virtual clock and stops at the first difference; per-adapter checks are P24; recordings that used the retry layer are refused until P20 is merged; not yet wired into the runner or CLI.
-- [ ] **P24. Replay works for both adapters** (FR14.7).
+- [x] **P24. Replay works for both adapters** (FR14.7). The real Claude and OpenAI-compatible adapters, run on canned HTTP, record and replay identically (errors, truncation, parallel tool calls, cache tokens, text-action fallback); one golden recording per adapter; no adapter defect was found.
 
 ## Retrieval and reproduction
 
