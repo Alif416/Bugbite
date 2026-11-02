@@ -1008,3 +1008,20 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** Everything above the provider is deterministic code that should be exercised again, including cost tracking, the repair calls of text-action models and the privacy rule, so a replay is a real test of them. Recording the replay again in memory gives an honest comparison with the original, because the replayed events come from the replayed chain. A manifest with unsupported settings would otherwise give a replay that quietly differs from the run.
 - **Alternatives:** Replaying at the loop (skips the upper layers and their failure paths).
 - **Consequences:** Anything that adds a layer to the chain must also teach the replay to build it, or refuse recordings that used it.
+
+## AD-125: A divergence is a `BaseException`, so the code under replay cannot swallow it
+
+- **Date:** 2026-11-02 · **Phase:** P23 · **Status:** Accepted
+- **Decision:** `ReplayDivergence` derives from `BaseException`, not `Exception`. The replay provider and the replay tools raise it from inside the code being replayed, and `replay()` catches it and turns it into a report.
+- **Why:** The code under replay has broad `except Exception` handlers on purpose: the loop turns a failing tool into an error result for the model and keeps going. A divergence raised inside a tool would have been swallowed there, and the replay would have carried on with invented output after the first difference, which is exactly what AD-122 forbids. A mutation test (the class changed to `Exception`) confirms it matters. Test frameworks use the same trick for the same reason.
+- **Alternatives:** The replay tools remember the divergence and the loop is told to stop (needs a hook in the loop); check a flag after every call (easy to forget in a new layer).
+- **Consequences:** Nothing else in Bugbite may catch `BaseException` around a replay. `replay()` is the only place that catches `ReplayDivergence`.
+
+## AD-126: Run settings that are on every request but not in the manifest are read from the first recorded request
+
+- **Date:** 2026-11-02 · **Phase:** P23 · **Status:** Accepted
+- **Decision:** The output-token limit the loop put on its requests is not stored in the manifest, so `replay` reads it from the fingerprint of the first recorded model call and passes it to the loop. Everything else the loop needs comes from the manifest.
+- **Why:** The limit is a setting of the run, not of the code, so replaying with a different value would report a difference that is not a regression. The first request is the only place the recording keeps it, and the text-action layer passes it through unchanged. Changing the manifest format for it was out of scope for a replay phase.
+- **Alternatives:** Add the setting to the manifest (a format change, and a version bump for one field); ignore it (false differences for any run that set it).
+- **Consequences:** A recording with no model call (a privacy refusal) uses the loop's default, which cannot matter because no request was sent. A later format version should record it directly.
+

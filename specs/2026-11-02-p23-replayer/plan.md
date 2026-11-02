@@ -14,11 +14,11 @@ Branch: `2026-11-02-p23-replayer` (from `main`; the P20 branch is on hold). See 
 2. `errors.py`: `ReplayError` (cannot be replayed) and `ReplayDivergence` (carries `kind`, `call`, `message`, `fields`, `path`).
 3. `model.py`: `model_from_manifest(manifest["model"]) -> ModelConfig`, including `Pricing` with a long-prompt tier, by hand; exact for the shipped models.
 4. `diff.py`: `fingerprint_differences(recorded, replayed)` and `first_difference(a, b)` (a path like `messages[2].blocks[0].content`).
-5. `provider.py`: `ReplayProvider(model, recorded_calls, clock)`; the check is done by a thin checking layer between the recording layer and the provider, because the fingerprint has to be computed from the request as it arrives.
+5. `provider.py`: `ReplayProvider(model, recorded_calls, clock)`; it checks the fingerprint itself, since it receives the very request the recording layer saw (built: no separate checking layer).
 6. `tools.py`: `ReplayTools(definitions, recorded_tool_calls, clock)` with `definitions()` and `execute(name, arguments, *, time_limit_s=None)`.
 7. `memory.py`: `MemoryWriter`, an in-memory stand-in for `RunWriter` (same sink interface; keeps events, no `t`-dependent files).
 8. `replay.py`: `replay(path, *, allow_partial=False, system_prompt=None, tool_definitions=None, loop_policy=<recorded>) -> ReplayResult`, `compare_events(recorded, replayed)`, `ReplayResult`.
-9. `__main__.py`: `python -m bugbite.replay <folder> [--allow-partial] [--json]`.
+9. `src/bugbite/replay.py` (not inside the package, so `python -m bugbite.replay` works): `python -m bugbite.replay <folder> [--allow-partial] [--json]`.
 
 ## 3. Tests
 
