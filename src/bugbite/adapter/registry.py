@@ -42,6 +42,7 @@ def create_adapter(
     ledger: CostLedger | None = None,
     sensitivity: Sensitivity = Sensitivity.PRIVATE,
     recorder: RecordingSink | None = None,
+    provider_adapter: ModelAdapter | None = None,
 ) -> ModelAdapter:
     """Build the adapter for a model.
 
@@ -56,18 +57,25 @@ def create_adapter(
 
     With a `recorder` (a `bugbite.recorder.RunWriter`), every call to the provider is recorded by a layer directly
     above the provider adapter and inside the guard (AD-118).
+
+    With a `provider_adapter`, it is used as the provider instead of building one from the registry, and no
+    key is needed. The replayer passes its stand-in here, so the guard, metering, recording and text-action
+    layers are the real ones (AD-124).
     """
-    factory = _factories.get(model.provider)
-    if factory is None:
-        known = ", ".join(registered_providers()) or "none"
-        raise ConfigError(
-            f"no adapter is registered for provider '{model.provider}' (registered: {known})"
-        )
-    if model.api_key_env and not api_key:
-        raise ConfigError(
-            f"model '{model.name}' needs an API key: read the {model.api_key_env} environment variable and pass it as api_key"
-        )
-    provider = factory(model, api_key)
+    if provider_adapter is not None:
+        provider = provider_adapter
+    else:
+        factory = _factories.get(model.provider)
+        if factory is None:
+            known = ", ".join(registered_providers()) or "none"
+            raise ConfigError(
+                f"no adapter is registered for provider '{model.provider}' (registered: {known})"
+            )
+        if model.api_key_env and not api_key:
+            raise ConfigError(
+                f"model '{model.name}' needs an API key: read the {model.api_key_env} environment variable and pass it as api_key"
+            )
+        provider = factory(model, api_key)
     if recorder is not None:
         provider = RecordingAdapter(provider, recorder)  # records what the provider really returned
     adapter = PrivacyGuardAdapter(provider, sensitivity)  # the last gate before the network

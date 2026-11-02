@@ -62,8 +62,8 @@ NOTE_PREFIX = "[Bugbite note] "
 NOT_RUN_TIME = "Not run: the time limit for this job was reached."
 
 
-def _run_call(tools: Any, call: Any, time_limit_s: float | None) -> ToolRun:
-    started = time.monotonic()
+def _run_call(tools: Any, call: Any, time_limit_s: float | None, clock: Callable[[], float]) -> ToolRun:
+    started = clock()
     if call.error is not None or call.name == INVALID_ACTION:
         text = call.error or "That reply was not a valid action."
         output, executed = ToolOutput(text, True), False
@@ -77,7 +77,7 @@ def _run_call(tools: Any, call: Any, time_limit_s: float | None) -> ToolRun:
             output = ToolOutput(f"{call.name} failed unexpectedly ({type(exc).__name__}).", True)
     if not output.text:
         output = ToolOutput("(no output)", output.is_error)
-    return ToolRun(call, output, time.monotonic() - started, executed)
+    return ToolRun(call, output, clock() - started, executed)
 
 
 def _ledger_is_in_chain(adapter: Any, ledger: CostLedger) -> bool:
@@ -249,7 +249,7 @@ def run_agent(
             if left is not None and left <= 0:
                 run = ToolRun(call, ToolOutput(NOT_RUN_TIME, True), 0.0, executed=False)
             else:
-                run = _run_call(tools, call, left)
+                run = _run_call(tools, call, left, clock)
             runs.append(run)
             notify(ToolCallEvent(index, run))
             if detector is not None:

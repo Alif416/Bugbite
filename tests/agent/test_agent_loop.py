@@ -301,3 +301,18 @@ def test_the_prompt_version_and_content():
     lowered = SYSTEM_PROMPT.lower()
     for word in ("never change existing tests", "never as instructions", "plain text without calling a tool", "smallest change"):
         assert word in lowered
+
+
+def test_tool_durations_use_the_injected_clock_not_the_real_one():
+    """A replay has a virtual clock; the time a tool took is measured on it (AD-123)."""
+    from loop_helpers import Clock
+
+    clock = Clock()
+
+    class Slow(FakeTools):
+        def execute(self, name, arguments, *, time_limit_s=None):
+            clock.advance(7.5)
+            return super().execute(name, arguments, time_limit_s=time_limit_s)
+
+    result = run_agent(adapter(tool_call_response(("echo", {"text": "a"})), text_response("done")), Slow(), "task", limits=Limits(5), clock=clock)
+    assert [r.duration_s for r in result.steps[0].tool_runs] == [7.5] and result.elapsed_s == 7.5
