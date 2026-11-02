@@ -39,4 +39,8 @@ No new dependencies; no network; no environment reads; no `Co-Authored-By` trail
 
 ## Findings
 
-(Filled in during the build.)
+- **Weights changed during the build (AD-132):** the first weights put a named test file above the source it covers, let four common words outscore the one rare word `scanner`, and missed `LRUCache` as an identifier. Each was fixed by a general rule, not a special case.
+- **Fixture mistakes worth knowing:** `def lambda()` is not valid Python, so a test file silently had no symbols until the test checked it; a traceback line number that fell on a blank line named the class instead of the method. Tests now use literal weights and line numbers so such changes are visible.
+- **Result on real code:** for four issues written for this repository (a replay divergence, a cost cap, the text-action parser, the symbol scanner) the known file is in the top three each time, and the traceback case puts the failing method in the symbol hits.
+- **Mutation check:** 20 deliberate breakages. Eight survived the first set of tests and were closed with targeted tests (traceback floor, tie-break by path, the three-strongest-words rule, the test-file symbol discount, the 8-places rule, the minimum score, the 40 % word-share filter, symbol-hit dedupe). One of those needed a better fixture (the traceback line had to be inside the method). All 20 are now caught.
+- **Dependency direction:** retrieval imports the agent's issue parser (AD-133); a later pre-step caller needs a lazy import or a move.

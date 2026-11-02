@@ -1057,3 +1057,27 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Alternatives:** Let the sandbox cut the output (invalid JSON); raise on any limit (a big repo would get no index at all).
 - **Consequences:** Callers that need completeness check `index.complete`. Rendering adds an "(index incomplete: ...)" line.
 
+## AD-131: Ranking is plain, deterministic code with named, capped signals; reasons add up to the score
+
+- **Date:** 2026-11-02 · **Phase:** P26 · **Status:** Accepted (owner chose it)
+- **Decision:** `rank_files(issue, index)` uses no model, no embeddings and no git history. Five signals (traceback frames, named paths, named tests with the source they cover, symbol names, word overlap) each return named reasons with points; each has its own cap, and all weights are constants at the top of `signals.py`. A candidate's score is exactly the sum of its reasons' points (a penalty is a reason with negative points), so every score can be explained line by line. Results are sorted by score, then path.
+- **Why:** FR3.3 asks to show why a file was chosen; a sum of named reasons is the most direct way to do that, and it costs nothing per job, cannot leak code to a model, and replays identically. Caps stop one signal (for example many weak words) from drowning stronger evidence. Embeddings (P27) can be added later as one more signal.
+- **Alternatives:** Ask the model to rank (tokens on every job, a big prompt, replay depends on it); git-history signals (needs `git log` in the sandbox, noisy on big repos); learned weights (no data yet).
+- **Consequences:** Weights are judgement, not measurement. They are pinned by tests with literal numbers, so changing one is a visible decision. Results are only as good as the issue text: an issue with no path, test, symbol or distinctive word gets no candidates and a note.
+
+## AD-132: Weighting choices found while testing
+
+- **Date:** 2026-11-02 · **Phase:** P26 · **Status:** Accepted
+- **Decision:** (1) A named test counts for the source file it covers (5 points) more than for the test file itself (3), and a named test path and test-file symbols count half, because the failing test is where the bug shows, not where it is fixed; a test file the issue does not name at all is halved. (2) Of a file's matched words only the three strongest count, so ten weak common words cannot beat one rare word. (3) A file whose one-word name is a word of the issue ("the scanner" for `scanner.py`) gets 2 points, unless more than three files share that name. (4) A name defined in more than eight places, and a word found in more than 40 % of files, is ignored. (5) A file needs at least 1.0 point to be listed.
+- **Why:** Each came from a test that failed with the first weights: the test file outranked the code under test; four common words outscored the rare word `scanner` for an issue about the scanner; `LRUCache` was not seen as an identifier. They are general rules about what an issue's wording tells you, not special cases.
+- **Alternatives:** Keep the first weights and loosen the tests (would have hidden the problem); add many special cases.
+- **Consequences:** The four issues written for this repository now put the known file in the top three. Better weights need real issues and a real model run, which P20 (on hold) will provide.
+
+## AD-133: Ranking reuses the pre-step's issue parser
+
+- **Date:** 2026-11-02 · **Phase:** P26 · **Status:** Accepted
+- **Decision:** `bugbite.retrieval` imports only `bugbite.agent.issue_parse` (tracebacks, path and test mentions, mapping a path in an issue to a tracked file) from the agent package; a test checks that nothing else from `bugbite.agent` is imported.
+- **Why:** The parser already handles odd tracebacks, quotes, Windows paths and ambiguity (a path that matches several files is not guessed), and has its own tests. Writing a second one would drift from it.
+- **Alternatives:** Copy the parser into retrieval (two versions to keep in step); move it into retrieval (touches the pre-step and its tests for no gain now).
+- **Consequences:** `retrieval` depends on `agent` and not the other way round. When the pre-step later calls the ranker, that call must import it inside the function or the parser must move to a neutral module, to avoid a cycle.
+
