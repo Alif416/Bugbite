@@ -7,6 +7,7 @@ from bugbite.adapter.ledger import CallRecord, CostLedger, ModelTotals
 from bugbite.adapter.metered import MeteredAdapter
 from bugbite.adapter.openai_compatible import OpenAICompatibleAdapter
 from bugbite.adapter.privacy_guard import PrivacyGuardAdapter
+from bugbite.adapter.recording import RecordingAdapter, RecordingSink
 from bugbite.adapter.registry import (
     create_adapter,
     register_adapter,
@@ -48,6 +49,8 @@ __all__ = [
     "CallRecord",
     "CostLedger",
     "MeteredAdapter",
+    "RecordingAdapter",
+    "RecordingSink",
     "ModelTotals",
     "compute_cost",
     "format_usd",
