@@ -14,7 +14,7 @@ from ts_helpers import PRICING, TestRetry  # noqa: E402
 
 from bugbite.adapter import CostLedger, create_adapter, register_adapter, unregister_adapter  # noqa: E402
 from bugbite.adapter.testing import ScriptedAdapter  # noqa: E402
-from bugbite.agent import Limits, run_agent  # noqa: E402
+from bugbite.agent import DEFAULT_LOOP_POLICY, Limits, run_agent  # noqa: E402
 from bugbite.config import ModelConfig  # noqa: E402
 from bugbite.errors import AdapterError  # noqa: E402
 from bugbite.privacy import Sensitivity  # noqa: E402
@@ -53,20 +53,23 @@ def fake_clocks(step=0.5):
 
 
 def recorded_run(tmp_path, state, script, *, native=True, retry=False, record_requests=False, tools=None, limits=None,
-                 scrub=None, task="fix it", info_kw=None, run_id=None, sensitivity=Sensitivity.PUBLIC, max_bytes=None, clock=None):
+                 scrub=None, task="fix it", info_kw=None, run_id=None, sensitivity=Sensitivity.PUBLIC, max_bytes=None, clock=None,
+                 monotonic=None, system_prompt=None, allow=True, loop_policy=DEFAULT_LOOP_POLICY, max_output_tokens=None):
     state.script = list(script)
     wall, mono = fake_clocks()
+    mono = monotonic or mono
+    prompt = {} if system_prompt is None else {"system_prompt": system_prompt}
     kw = {} if max_bytes is None else {"max_bytes": max_bytes}
     recording = start_recording(
-        tmp_path / "recordings", RecordingInfo(model(native), "https://github.com/o/r/issues/1", "o/r", sensitivity.value, task, ref="a" * 40,
-                                               limits=limits or Limits(10), **(info_kw or {})),
+        tmp_path / "recordings", RecordingInfo(model(native, allow), "https://github.com/o/r/issues/1", "o/r", sensitivity.value, task, ref="a" * 40,
+                                               limits=limits or Limits(10), loop_policy=loop_policy, **prompt, **(info_kw or {})),
         scrub=scrub or (lambda t: t), record_requests=record_requests, commit_info=lambda: ("c" * 40, False),
         environment=lambda: dict(FIXED_ENV), wall_clock=wall, monotonic=mono, run_id=run_id, **kw)
     ledger = CostLedger()
-    adapter = create_adapter(model(native), ledger=ledger, sensitivity=sensitivity, recorder=recording.writer)
+    adapter = create_adapter(model(native, allow), ledger=ledger, sensitivity=sensitivity, recorder=recording.writer)
     if retry:
         adapter = TestRetry(adapter)
-    extra = {} if clock is None else {"clock": clock}
+    extra = prompt | {"loop_policy": loop_policy} | ({} if max_output_tokens is None else {"max_output_tokens": max_output_tokens}) | ({} if clock is None else {"clock": clock})
     result = run_agent(adapter, tools or FakeTools(), task, limits=limits or Limits(10), ledger=ledger, observer=recording.observer, **extra)
     recording.close()
     return result, recording, ledger, state.raw

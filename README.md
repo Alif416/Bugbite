@@ -668,6 +668,33 @@ loaded = load_recording(recording.path)                      # validated; .model
 
 **Requests.** Each `model_call` stores a fingerprint of the request: the SHA-256 of its canonical JSON, its size, and counts of messages, system blocks and tools, plus the sampling settings. Replay uses it to notice that the agent now behaves differently. Pass `record_requests=True` to also store the whole request (several megabytes for a long run).
 
-**Safe by design.** A write problem (disk full, size cap of 200 MB, bad value) is counted in `recording.writer.errors` and never raised, and the manifest then says `incomplete` with the reason. Every string is passed through the caller's `scrub` function first. `load_recording` checks the format and version, that sequence numbers run 1 to n, every event's fields, and (for a complete recording) the hash and counts of the events file; a last line cut off by a crash is ignored with a warning, any other damage raises `RecordingError` naming the file. Recordings hold prompts and file contents for every job, private ones included, with the sensitivity in the manifest: they are private code on your disk, so check `sensitivity` before copying or sharing one. `recordings/` is git-ignored; a small golden recording under `tests/fixtures/` pins the format, and a test regenerates it byte for byte.
+**Safe by design.** A write problem (disk full, size cap of 200 MB, bad value) is counted in `recording.writer.errors` and never raised, and the manifest then says `incomplete` with the reason. Every string is passed through the caller's `scrub` function first. `load_recording` checks the format and version, that sequence numbers run 1 to n, every event's fields, and (for a complete recording) the hash and counts of the events file; a last line cut off by a crash is ignored with a warning, any other damage raises `RecordingError` naming the file. Recordings hold prompts and file contents for every job, private ones included, with the sensitivity in the manifest: they are private code on your disk, so check `sensitivity` before copying or sharing one. `recordings/` is git-ignored (except `tests/fixtures/recordings/`); a small golden recording there pins the format, and a test regenerates it byte for byte.
 
-Not built yet: replaying (P23, P24), a virtual clock for replay, wiring into `bugbite.local_run` and the CLI, compression and encryption. The events file is flushed but not fsynced, so a power cut can lose the last events (a process crash cannot).
+Replaying a recording is described in the next section. Not built yet: wiring recording into `bugbite.local_run` and the CLI, compression and encryption. The events file is flushed but not fsynced, so a power cut can lose the last events (a process crash cannot).
+
+### Replaying a recording
+
+`bugbite.replayer` re-runs a recording offline: no network, no Docker, no sandbox, no key, no environment variables (README FR10.2, FR10.5). It is how a change to the prompt, a tool description or the loop shows up as an exact, named difference instead of a silent change (FR10.3).
+
+```
+uv run python -m bugbite.replay recordings/<run id>            # prints a summary
+uv run python -m bugbite.replay recordings/<run id> --json     # the same facts as data
+uv run python -m bugbite.replay recordings/<run id> --allow-partial
+```
+
+Exit code 0: identical. 1: the replay differs or had to stop. 2: the recording cannot be replayed (damaged, incomplete without `--allow-partial`, or made with settings this version cannot rebuild). From Python: `replay(path, *, allow_partial=False, system_prompt=None, tool_definitions=None, loop_policy=...)` returns a `ReplayResult` with `identical`, `divergence`, `differences`, `notes`, `agent` (the `AgentResult`, or None after a divergence) and the replayed `events`.
+
+**What is replayed.** The model's answers and the tool outputs come from the recording; everything else is run again. From the manifest: the model config with its prices, the data sensitivity, the task, the limits and the loop-detection policy. From the current code: the system prompt, the tool definitions, and the agent loop. The chain above the provider is rebuilt with the real layers: text-action repair (if the model has no native tool calling), cost metering, the privacy guard, and an in-memory recording layer. Only the provider is replaced, by `create_adapter(..., provider_adapter=...)`. So a replay really tests cost limits, repair calls and the privacy rule again.
+
+**What is compared.** Before a recorded answer is served, the request the current code built is fingerprinted and compared with the recorded fingerprint, and each tool call the loop makes is compared with the recorded one (name and arguments). **The first difference ends the replay**, because every later answer was recorded for a different question. The report gives the kind (`request_mismatch`, `tool_mismatch`, `extra_model_call`, `extra_tool_call`, `provider_bug`, `recording_ended`), the call number and which fingerprint fields differ; if the recording kept full requests (`record_requests=True`), it also gives the path of the first differing value, for example `tools[0].description` or `messages[2].blocks[0].content`, with a short excerpt of both sides. If nothing differs, the replayed steps, tool calls and outcome are compared with the recorded ones (ignoring times) and any difference is listed; `identical` is true only if there is none. Differences in the prompt version, system prompt hash or tools version are reported as notes.
+
+**Time.** Replay uses a virtual clock set from the recorded event times, so a recorded `time_cap` replays as a `time_cap`, nothing waits, and two replays of one recording are identical. The loop measures tool durations with the clock it is given.
+
+**Deliberately not covered.**
+- Reproducing an old run after the prompt or tools changed. The recording stores their versions and the prompt's hash, not their text, so replay runs today's text; after a deliberate change, old recordings report a difference until they are re-recorded. Pass `system_prompt=` / `tool_definitions=` to replay with different ones.
+- Recordings made with the retry layer (a retry policy in the manifest): refused until that layer is merged and the replay chain can rebuild it.
+- A recorded bug in a provider adapter (an `exception` event): reported as `provider_bug`, not replayed.
+- Recordings whose `scrub` function changed a string that later reached the model (for example a redacted token in a tool output): the replayed request holds the redacted text but the fingerprint was taken before redaction, so replay reports a difference at the next call.
+- Elapsed times equal the recorded ones only up to the few milliseconds between the recording starting and the loop starting; a limit crossed within that margin could replay differently.
+- Per-adapter replay checks for Claude and OpenAI-compatible (P24); wiring replay into the runner or CLI; re-scoring with the verifier.
+
