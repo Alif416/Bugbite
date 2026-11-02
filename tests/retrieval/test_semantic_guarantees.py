@@ -171,3 +171,68 @@ def test_memory_store_ties_break_by_position():
     store = MemoryStore()
     store.add([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
     assert store.query([1.0, 0.0], 3) == [(0, 1.0), (1, 1.0), (2, 0.0)]
+
+
+class Spy:
+    """Records what the embedder and the store are asked."""
+
+    name = "spy"
+
+    def __init__(self):
+        self.texts = []
+
+    def embed(self, texts):
+        self.texts.extend(texts)
+        return HashEmbedder().embed(texts)
+
+
+def test_the_query_is_cut_before_it_reaches_the_embedder(tmp_path):
+    spy = Spy()
+    with build(tmp_path, embedder=spy, limits=ChunkLimits(max_query_chars=40))[0] as s:
+        spy.texts.clear()
+        s.search("retry " * 1000)
+        assert spy.texts and all(len(t) == 40 for t in spy.texts)
+
+
+def test_the_store_is_asked_for_more_than_is_returned_so_ties_break_the_same_way(tmp_path):
+    asked = []
+
+    class Store(MemoryStore):
+        def query(self, vector, count):
+            asked.append(count)
+            return super().query(vector, count)
+
+    index, box = index_of(tmp_path, {f"m{i}.py": f"def f{i}():\n    return 1\n" for i in range(10)})
+    with SemanticIndex.build(box, index, HashEmbedder(), store_factory=Store) as s:
+        s.search("f", 3)
+    assert asked == [6]
+
+
+def test_source_files_come_before_test_files_even_when_tests_sort_first(tmp_path):
+    from bugbite.retrieval.chunks import plan_chunks
+
+    index, _ = index_of(tmp_path, {"a_tests/test_one.py": "def test_one():\n    pass\n", "z.py": "def real():\n    pass\n"})
+    chunks, _ = plan_chunks(index, ChunkLimits(max_chunks=1))
+    assert [c.path for c in chunks] == ["z.py"]
+
+
+def test_the_vector_check_catches_ragged_vectors_on_its_own():
+    from bugbite.retrieval.embedders import check_vectors
+
+    with pytest.raises(RetrievalError, match="different lengths"):
+        check_vectors([[1.0], [1.0, 2.0]], 2, "x")
+
+
+def test_an_embedders_own_retrieval_error_is_passed_on_unchanged(tmp_path):
+    from bugbite.retrieval.errors import EMBEDDER_UNAVAILABLE
+
+    class Missing:
+        name = "missing"
+
+        def embed(self, texts):
+            raise RetrievalError(EMBEDDER_UNAVAILABLE, "model not installed")
+
+    index, box = index_of(tmp_path, FILES)
+    with pytest.raises(RetrievalError) as info:
+        SemanticIndex.build(box, index, Missing(), store_factory=MemoryStore)
+    assert info.value.code == EMBEDDER_UNAVAILABLE and "not installed" in str(info.value)

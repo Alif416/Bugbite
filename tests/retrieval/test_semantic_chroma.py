@@ -51,3 +51,11 @@ def test_the_real_model_finds_the_right_chunk_for_a_plain_words_question(tmp_pat
         assert s.search("remove the oldest item").hits[0].qualname == "Cache.evict"
         # a vaguer question still lands in the right file: both retry functions come before anything else
         assert {h.qualname for h in s.search("how long to wait before trying again", 2).hits} == {"retry_after_timeout", "backoff_delay"}
+
+
+def test_chroma_telemetry_is_off(tmp_path):
+    store = ChromaStore(tmp_path)
+    try:
+        assert store._client.get_settings().anonymized_telemetry is False
+    finally:
+        store.close()
