@@ -43,7 +43,7 @@ FR numbers refer to README.md section 5.
 
 ## Retrieval and reproduction
 
-- [ ] **P25. File tree + symbol index** with `ast` (FR3.1).
+- [x] **P25. File tree + symbol index** with `ast` (FR3.1). Built inside the sandbox by a stdlib-only script and read back as validated JSON; Python symbols only; library only, no agent tool yet (P26 is the first consumer).
 - [ ] **P26. Candidate file ranking with reasons**, small context only (FR3.3, FR3.4).
 - [ ] **P27. Embeddings search** — Chroma index + `semantic_search` (FR3.2).
 - [ ] **P28. Context trimming** — drop old tool output first for small-window models (FR14.8).

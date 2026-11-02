@@ -29,4 +29,8 @@ Branch: `2026-11-02-p25-file-tree-symbol-index` (from `main` at `ecf2d62`). Cove
 
 ## Findings
 
-(Filled in during the build.)
+- **Defects found by the new tests, fixed before merging:**
+  - Very deep nesting made a qualified name longer than the host accepts, so the host refused the whole index because of one odd file. The scanner now skips such a symbol and everything inside it (AD-129).
+  - A missing repo folder produced an empty, "complete" index. It is now a `scan_failed` error (AD-130).
+- **Behaviours worth knowing:** CPython's parser accepts invalid UTF-8 inside a comment, so such a file still parses; invalid bytes in a string or identifier give a `SyntaxError` reason. A `.py` file containing a null byte is listed as `binary` with the reason `contains null bytes`. The sandbox image has an environment variable named `GPG_KEY` (the Python image's public signing key id, not a secret); the Docker test allows only that name.
+- **Mutation check:** 15 deliberate breakages, all caught (async ignored, line off by one, wrong nested name, symlinks followed, `.git` not skipped, no size limit, `..` accepted, truncation flag dropped, missing root accepted, deep names not skipped, wrong end line, methods called functions, null bytes parsed, symbol/file consistency check off, JSON round trip losing decorators). Three survived at first and were fixed in the tests: a symlink guard that is doubled (a test now breaks both), path tests that failed for the wrong reason (they now change a file that has no symbols), and a round-trip test with no decorated code. One mutant is equivalent: removing the `startswith("/")` check changes nothing, because an absolute path also has an empty first part and is refused there.

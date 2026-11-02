@@ -700,3 +700,23 @@ Exit code 0: identical. 1: the replay differs or had to stop. 2: the recording c
 - Elapsed times equal the recorded ones only up to the few milliseconds between the recording starting and the loop starting; a limit crossed within that margin could replay differently.
 - Wiring replay into the runner or CLI; re-scoring with the verifier.
 
+## Code index (file tree and symbols)
+
+`bugbite.retrieval` builds a map of a repository for the agent to use later (README FR3.1; ranking is P26, embeddings P27). Nothing in the agent uses it yet.
+
+```python
+from bugbite.retrieval import build_index, render_tree, render_symbols
+index = build_index(sandbox)                 # runs inside the sandbox; writes nothing
+index.find("run_agent")                      # symbols with that name
+index.get("Sandbox.run")                     # by qualified name
+index.in_file("src/app.py"); index.by_kind("class")
+print(render_tree(index, max_lines=80))      # bounded text views for prompts
+print(render_symbols(index.find("parse"), max_lines=20))
+```
+
+- **Files:** every non-skipped file with size, language and line count. `.git`, `node_modules`, virtualenvs and caches are skipped. Symlinks are never followed.
+- **Symbols (Python only):** classes, functions and methods, including nested ones and ones inside `if`/`try`. Each has a qualified name (`Class.method`, `func.<locals>.inner`), start and end line (of the `def`/`class` line), signature, decorators, the first docstring line, its parent, and `is_async`. A file that does not parse is listed with the reason and has no symbols.
+- **Safe by construction:** a small standard-library script runs *inside* the sandbox and only parses (`ast.parse`); repo code is never imported or run, and nothing is written. The host treats the script's JSON as untrusted and rejects anything that is not exactly the expected shape (absolute or `..` paths, wrong types, oversized text, symbols outside listed Python files).
+- **Bounded:** `IndexLimits` caps files, symbols, file size, output size and depth; when one is hit, `index.truncated` says which and `index.complete` is false. Rendering is capped in lines and says how much was left out. The index converts to and from JSON (`to_json` / `from_json`, schema version 1).
+
+Not built: ranking and "why this file" (P26), embeddings (P27), other languages, imports and call graphs, incremental updates, an agent tool.
