@@ -45,7 +45,7 @@ FR numbers refer to README.md section 5.
 
 - [x] **P25. File tree + symbol index** with `ast` (FR3.1). Built inside the sandbox by a stdlib-only script and read back as validated JSON; Python symbols only; library only, no agent tool yet (P26 is the first consumer).
 - [x] **P26. Candidate file ranking with reasons**, small context only (FR3.3, FR3.4). Plain deterministic code over the issue text and the P25 index; at most 10 files with named reasons, rendered in about 2 000 characters; library only, not yet shown to the agent (P45).
-- [ ] **P27. Embeddings search** — Chroma index + `semantic_search` (FR3.2).
+- [x] **P27. Embeddings search** — Chroma index + semantic search (FR3.2). Local model, per-job temp store, symbol chunks; library only, the `semantic_search` tool comes with the runner (P45).
 - [ ] **P28. Context trimming** — drop old tool output first for small-window models (FR14.8).
 - [ ] **P29. Reproduction step** — agent writes a failing test (FR4.1).
 - [ ] **P30. Reproduction check** — confirm it fails for the right reason; retry limit; low-confidence flag on give-up (FR4.2, FR4.3).

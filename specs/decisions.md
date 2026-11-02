@@ -1081,3 +1081,27 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Alternatives:** Copy the parser into retrieval (two versions to keep in step); move it into retrieval (touches the pre-step and its tests for no gain now).
 - **Consequences:** `retrieval` depends on `agent` and not the other way round. When the pre-step later calls the ranker, that call must import it inside the function or the parser must move to a neutral module, to avoid a cycle.
 
+
+## AD-134: Semantic search embeds locally with Chroma's default model, and the vector store lives in a per-job temp folder
+
+- **Date:** 2026-11-02 · **Phase:** P27 · **Status:** Accepted (owner chose it)
+- **Decision:** Chunks are embedded on this machine with Chroma's default model (all-MiniLM-L6-v2 through ONNX) and stored in a Chroma `PersistentClient` inside a `tempfile.mkdtemp` folder that `close()` deletes, also when building fails. Chroma telemetry is turned off. Nothing persists between jobs.
+- **Why:** The privacy rule says private code never reaches a model not marked `allow_private_code`; a hosted embeddings API would break that for every private repo and needs a key. A local model needs neither. A fresh index per job has no stale data and no cache-invalidation rules.
+- **Alternatives:** Hosted embeddings (quality, but sends code out); a persistent store keyed by repo and commit (faster on repeat jobs, but needs invalidation and storage rules; can be added later); pgvector (needs the database in the loop for a throw-away index).
+- **Consequences:** New dependency `chromadb` (large tree; `uv.lock` grew by about 2 300 lines). The model is a one-time 79 MB download (about 167 MB in `~/.cache/chroma` afterwards), and after that works offline. Indexing costs CPU time per job, bounded by `max_chunks`.
+
+## AD-135: The vector store and the embedder are interfaces, with an in-memory store and a hash embedder for tests
+
+- **Date:** 2026-11-02 · **Phase:** P27 · **Status:** Accepted
+- **Decision:** `Embedder` (`name`, `embed`) and `VectorStore` (`add`, `query`, `close`) are small protocols. `ChromaDefaultEmbedder` and `ChromaStore` are the real ones and import `chromadb` lazily. `HashEmbedder` (hashed words) and `MemoryStore` (brute-force cosine) are deterministic and offline. Embedder output is never trusted: wrong count, ragged, empty or non-finite vectors raise `RetrievalError`, and an embedder's own exception is turned into one clean error that does not repeat its message.
+- **Why:** Most tests must run anywhere, quickly, with no download and no model nondeterminism. The Chroma path is tested too, when `chromadb` is installed, including one test with the real model.
+- **Alternatives:** Always use Chroma in tests (slow, needs the model); mock Chroma (proves nothing about Chroma).
+- **Consequences:** The hash embedder proves the plumbing, not the search quality; quality is only checked by the small real-model test. Importing `bugbite.retrieval` does not import `chromadb`.
+
+## AD-136: Chunks are symbols from the code index; source is read inside the sandbox in bounded batches; the index is built on the host
+
+- **Date:** 2026-11-02 · **Phase:** P27 · **Status:** Accepted
+- **Decision:** One chunk per class, function or method (nested functions are skipped), plus the head of each non-binary file that has no symbols. A class chunk is its first 12 lines (its methods are chunks of their own); a function chunk is at most 40 lines; every chunk text is cut to 1 500 characters. Source text is read by a stdlib snippet run in the sandbox, up to 100 000 characters per call, refusing paths that resolve outside the repository. Embedding and Chroma run on the host. Over 3 000 chunks, test files are dropped first and a note says how many were left out.
+- **Why:** The repository lives in the sandbox, which has no network and no Chroma. Symbol chunks respect code structure; fixed windows cut functions in half. The batch size keeps JSON-escaped output under the sandbox's 1 MiB cap.
+- **Alternatives:** Run Chroma in the sandbox (needs network for the model and a bigger image); fixed line windows (ignore structure); one read per file (hundreds of container calls).
+- **Consequences:** Only Python symbols get symbol chunks (the P25 limit), other text files get a head chunk. Chunk sizes and caps are judgement, not measured. Similarity scores are the model's cosine similarity and are not comparable with the P26 ranking points; merging the two is later work.

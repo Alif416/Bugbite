@@ -746,3 +746,22 @@ Test files rank below source files unless the issue names them. A file needs at 
 
 Not built: embeddings and semantic search (P27), code snippets in the result, git history, learned weights, showing the ranking to the agent. The weights are judgement; they were set by reasoning and checked on fixture issues and on four issues written for this repository, and they need real issues to tune further.
 
+## Semantic search
+
+`SemanticIndex` finds the code that is closest in meaning to a question in plain words (README FR3.2): "where do we wait before trying again?". It complements grep and the P26 ranking, which need the right words. Nothing in the agent uses it yet (the tool and wiring come later).
+
+```python
+index = build_index(sandbox)
+with SemanticIndex.build(sandbox, index, ChromaDefaultEmbedder()) as semantic:
+    results = semantic.search("how do we load settings from a yaml file?")  # at most 10 hits
+    print(render_semantic(results))  # about 2 000 characters, with line ranges
+```
+
+- **Local:** Chroma's default model runs on this machine. No code and no key leave it, so private repositories are safe. The first use downloads the model once (about 79 MB, kept in `~/.cache/chroma`); after that it works offline. Chroma telemetry is off.
+- **Per job:** the vector store is a temporary folder, deleted on `close()` or leaving the `with` block, also after an error. Nothing persists.
+- **Chunks:** one per class, function or method of the code index, plus the head of files with no symbols; at most 3 000 chunks (test files are dropped first, with a note), 1 500 characters each. Each hit has the path, symbol, line range, a similarity from 0 to 1 and a one-line preview.
+- **Honest:** an empty query, an empty repository or nothing close gives no hits and a note. A missing `chromadb`, a model that cannot load or an embedder that returns damaged vectors is a clear `RetrievalError`, never silent empty results.
+- **Tests:** `HashEmbedder` and `MemoryStore` are offline stand-ins used by most tests; the real Chroma store and model are tested when `chromadb` is installed.
+
+Not built: persistent or shared stores, languages other than Python for symbols, hosted embeddings, merging with the P26 ranking, the agent tool (it will bump the tools version and the golden replays), incremental updates. Similarity scores come from a small general-purpose model and are not tuned for code; on a toy repository it found the right function for plain-words questions, and a vague one ("how long to wait before trying again") returned both retry functions in the top two rather than one.
+
