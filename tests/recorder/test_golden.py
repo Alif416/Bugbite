@@ -16,18 +16,17 @@ def test_the_committed_recording_loads_and_its_hash_matches():
     assert rec.complete and rec.warnings == () and rec.manifest["run_id"] == RUN_ID
     raw = (GOLDEN / EVENTS).read_bytes()
     assert hashlib.sha256(raw).hexdigest() == rec.manifest["events_sha256"] and len(raw) == rec.manifest["events_bytes"]
-    assert rec.manifest["counts"] == {"events": 7, "model_calls": 3, "tool_calls": 1}
+    assert rec.manifest["counts"] == {"events": 6, "model_calls": 2, "tool_calls": 1}
 
 
 def test_its_contents_are_exactly_what_was_recorded():
     rec = load_recording(GOLDEN)
     calls = rec.model_calls()
-    assert [c.call for c in calls] == [1, 2, 3]
-    assert (calls[0].error.code, calls[0].error.message, calls[0].error.retry_after_s, calls[0].error.status_code) == ("rate_limited", "Rate limit reached for tokens per minute.", 2.0, 429)
-    assert calls[1].response == GenerationResponse(
+    assert [c.call for c in calls] == [1, 2]
+    assert calls[0].response == GenerationResponse(
         (TextBlock("Let me look."), ToolCallBlock("call_1", "echo", {"text": "golden"})), "tool_use", Usage(12, 7, 3, 1), "scripted-model", "tool_use")
-    assert calls[2].response == GenerationResponse((TextBlock("The bug is fixed."),), "end_turn", Usage(20, 9), "scripted-model", "end_turn")
-    assert [s["model_calls"] for s in rec.steps()] == [[1, 2], [3]]
+    assert calls[1].response == GenerationResponse((TextBlock("The bug is fixed."),), "end_turn", Usage(20, 9), "scripted-model", "end_turn")
+    assert [s["model_calls"] for s in rec.steps()] == [[1], [2]]
     [tool] = rec.tool_calls()
     assert (tool["call"], tool["output"], tool["duration_s"]) == ({"id": "call_1", "name": "echo", "arguments": {"text": "golden"}}, {"text": "echoed: golden", "is_error": False}, 0.25)
     finish = rec.finish()
@@ -48,3 +47,16 @@ def test_every_request_fingerprint_in_it_is_well_formed():
     for record in load_recording(GOLDEN).model_calls():
         fp = record.request
         assert len(fp["sha256"]) == 64 and fp["bytes"] > 0 and fp["messages"] >= 1 and fp["tools"] == 2 and fp["system_blocks"] == 1
+
+
+def test_the_fixture_is_not_hidden_by_gitignore():
+    """A .gitignore rule for recordings/ once hid this folder, so a fresh clone had no golden recording."""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        return
+    done = subprocess.run(["git", "check-ignore", "-q", str(GOLDEN / EVENTS), str(GOLDEN / MANIFEST)], cwd=GOLDEN, capture_output=True)
+    if done.returncode == 128:  # not inside a git checkout (for example an exported source tree)
+        return
+    assert done.returncode == 1, "the golden recording is ignored by git"

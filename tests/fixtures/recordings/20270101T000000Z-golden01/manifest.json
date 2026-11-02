@@ -1,0 +1,95 @@
+{
+  "bugbite": {
+    "commit": "cccccccccccccccccccccccccccccccccccccccc",
+    "dirty": false,
+    "platform": "test-platform",
+    "python": "3.11.0",
+    "version": "0.0.0-test"
+  },
+  "counts": {
+    "events": 6,
+    "model_calls": 2,
+    "tool_calls": 1
+  },
+  "created_at": "2027-01-15T08:00:00.000000Z",
+  "events_bytes": 1906,
+  "events_sha256": "ea67d2c8f115aa6ae85ff424be379df43652ffc7239bc8866335ab80d0fd0660",
+  "extra": {},
+  "finished_at": "2027-01-15T08:00:01.000000Z",
+  "format": "bugbite-recording",
+  "format_version": 1,
+  "model": {
+    "allow_private_code": true,
+    "api_key_env": null,
+    "base_url": "http://x",
+    "context_window": 100000,
+    "max_output_tokens": 100,
+    "model_name": "m",
+    "name": "paid",
+    "native_tool_calling": true,
+    "per_issue_cap_usd": 0.0,
+    "pricing": {
+      "as_of": null,
+      "cache_read": "1000",
+      "cache_write": "1000",
+      "input": "1000",
+      "long_prompt": null,
+      "output": "2000",
+      "source": null
+    },
+    "prompt_caching": "auto",
+    "provider": "rec_fake"
+  },
+  "outcome": {
+    "cost_usd": "0.068",
+    "elapsed_s": 1.75,
+    "error_code": null,
+    "error_message": null,
+    "limit_detail": null,
+    "nudges": 0,
+    "observer_errors": 0,
+    "status": "finished",
+    "steps": 2,
+    "usage": {
+      "cache_read_tokens": 3,
+      "cache_write_tokens": 1,
+      "input_tokens": 32,
+      "output_tokens": 16
+    }
+  },
+  "prompt": {
+    "system_prompt_sha256": "e3db85b706f0ab20cdb2d71622b2ede99339246b83b41a541cd5eb37355ef413",
+    "tools_version": "2",
+    "version": "1"
+  },
+  "reason": null,
+  "recording_errors": 0,
+  "run_id": "20270101T000000Z-golden01",
+  "settings": {
+    "limits": {
+      "cost_margin": "1.25",
+      "max_cost_usd": "5",
+      "max_steps": 6,
+      "max_wall_clock_s": 60.0
+    },
+    "loop_policy": {
+      "edit_fail_nudge": 4,
+      "edit_fail_stop": 6,
+      "repeat_nudge": 3,
+      "repeat_stop": 5
+    },
+    "record_requests": false,
+    "retry_policy": null
+  },
+  "source": {
+    "issue_url": "https://github.com/o/r/issues/1",
+    "ref": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "repo": "o/r",
+    "sensitivity": "public"
+  },
+  "status": "complete",
+  "task": {
+    "sha256": "fa9704893a4ed4793e99fb6ca8ade40787978c3590d352a5590f0a40730c62b5",
+    "text": "Fix the golden bug."
+  }
+}
