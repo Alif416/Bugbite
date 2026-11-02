@@ -1033,3 +1033,27 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Alternatives:** Scripted adapters with each provider's config (never runs the translation code); live runs per provider (need keys and spend quota or money, and are not repeatable).
 - **Consequences:** The adapters measure latency from the real clock, so the golden builder replaces the `time` module seen by the two adapter modules with a fixed one; tool-call ids in the goldens come from a counter the builder resets. Live recordings stay covered only by the existing opt-in live tests.
 
+## AD-128: The index is built by a stand-alone script that runs inside the sandbox; the host only reads its JSON
+
+- **Date:** 2026-11-02 · **Phase:** P25 · **Status:** Accepted (owner chose it)
+- **Decision:** `build_index(sandbox)` runs `python -c <scanner> <repo root> <limits JSON>` in the sandbox. The scanner uses only the standard library, walks the repo, parses Python files with `ast` (never importing or running them) and prints one JSON document. The host validates that document strictly (`RepoIndex.from_json`): exact field sets, types, lengths, relative clean paths, symbols only in parsed Python files, line ranges inside their files.
+- **Why:** The repo is untrusted and lives in the container; parsing it on the host would move its files onto the host disk. Running the script with `-c` writes nothing in the repo, needs no new dependency and no image change, and the output is plain data that is checked like any other input from the sandbox.
+- **Alternatives:** Copy the repo to the host and parse there (untrusted files on the host); build the index on a plain folder only and decide the transport later (defers the real problem).
+- **Consequences:** The scanner is a string constant, so it is tested by running it on a host folder through the stand-in sandbox and once for real in Docker. It cannot import Bugbite code, so its small helpers are duplicated there on purpose.
+
+## AD-129: Symbol naming and what is skipped
+
+- **Date:** 2026-11-02 · **Phase:** P25 · **Status:** Accepted
+- **Decision:** Symbols are classes, functions and methods (`kind`), with `is_async` as a separate flag. Qualified names follow Python's own convention: `Class.method`, `Outer.Inner`, and `func.<locals>.inner` for anything defined inside a function. A name defined twice (for example in `if`/`else`) is listed twice; `get(qualname)` returns the first. Definitions inside `if`, `try`, `with`, `for`, `match` and similar statements are found. Symlinks are never followed or listed, even inside the repo. A qualified name longer than 400 characters (absurd nesting) is skipped with everything inside it. Only Python (`.py`) gets symbols; `.pyi` and all other files appear in the tree only.
+- **Why:** One naming rule that matches `__qualname__` is easy for ranking and for models to use, and unambiguous (`<locals>` cannot clash with a real name). Skipping every symlink is the simplest rule that cannot leave the repo or loop, and the target of an in-repo link is listed under its real path anyway. A hard cap on name length keeps one odd file from making the host refuse the whole index.
+- **Alternatives:** Dotted names for local functions (clash with attributes); following in-repo symlinks (needs loop and escape checks); failing the whole index on bad input (one odd file would hide the rest).
+- **Consequences:** Module-level constants and imports are not symbols. A decorated definition's `line` is its `def`/`class` line; its decorators are listed separately.
+
+## AD-130: The scanner keeps its own output under the sandbox cap and reports why an index is incomplete
+
+- **Date:** 2026-11-02 · **Phase:** P25 · **Status:** Accepted
+- **Decision:** `IndexLimits` (files 5000, symbols 20000, file size 500 kB, output 900 kB, depth 30) are passed to the scanner, which stops adding when one is reached and lists the reasons in `truncated` (`max_files`, `max_symbols`, `max_depth`, `output_budget`). The default output budget is below the sandbox's 1 MiB output cap; if the sandbox still cuts the output, `build_index` raises `output_too_large`. A file that cannot be read or parsed is listed with a `parse_error` reason and never stops the scan. A missing repo folder is an error, not an empty index.
+- **Why:** A half-cut JSON document would be useless, so the scanner must stop cleanly itself. Saying why an index is incomplete lets ranking (P26) and the prompt tell the model, instead of silently pretending the repo has no more files.
+- **Alternatives:** Let the sandbox cut the output (invalid JSON); raise on any limit (a big repo would get no index at all).
+- **Consequences:** Callers that need completeness check `index.complete`. Rendering adds an "(index incomplete: ...)" line.
+
