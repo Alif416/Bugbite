@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from .ranking_types import Ranking
+from .semantic_types import SemanticResults
 from .types import RepoIndex, Symbol
 
 MAX_LINE_CHARS = 200
@@ -100,3 +101,33 @@ def render_ranking(ranking: Ranking, max_chars: int = 2000) -> str:
             kept.append(line)
         text = "\n".join(kept)
     return text
+
+
+def render_semantic(results: "SemanticResults", max_chars: int = 2000) -> str:
+    """The hits with their line ranges, never longer than `max_chars`, cut only between whole lines."""
+    if type(max_chars) is not int or max_chars < 100:
+        raise ValueError("max_chars must be at least 100")
+    blocks = []
+    for number, h in enumerate(results.hits, 1):
+        lines = [_clip(f"{number}. {h.path}:{h.line}-{h.end_line}  {h.qualname}  (similarity {h.score:.2f})")]
+        if h.preview:
+            lines.append(_clip(f"   {h.preview}"))
+        blocks.append(lines)
+    out: list[str] = []
+    used = shown = 0
+    for lines in blocks:
+        size = sum(len(line) + 1 for line in lines)
+        if used + size > max_chars - 60:
+            break
+        out.extend(lines)
+        used += size
+        shown += 1
+    if len(blocks) - shown:
+        out.append(f"... and {len(blocks) - shown} more matches not shown")
+    out.extend(_clip(f"note: {n}") for n in results.notes)
+    kept: list[str] = []
+    for line in out:
+        if sum(len(k) + 1 for k in kept) + len(line) > max_chars:
+            break
+        kept.append(line)
+    return "\n".join(kept)

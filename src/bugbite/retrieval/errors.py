@@ -7,8 +7,12 @@ SCAN_TIMEOUT = "scan_timeout"
 OUTPUT_TOO_LARGE = "output_too_large"  # the sandbox cut the scanner's output
 BAD_OUTPUT = "bad_output"  # the output was not a valid index (untrusted data)
 BAD_LIMITS = "bad_limits"
+READ_FAILED = "read_failed"  # reading source text from the sandbox failed (P27)
+EMBEDDER_UNAVAILABLE = "embedder_unavailable"  # the embedding library or model is not installed or cannot load (P27)
+EMBED_FAILED = "embed_failed"  # the embedder failed or returned unusable vectors (P27)
+BAD_QUERY = "bad_query"  # a search argument was not usable (P27)
 
-ALL_CODES = frozenset({SCAN_FAILED, SCAN_TIMEOUT, OUTPUT_TOO_LARGE, BAD_OUTPUT, BAD_LIMITS})
+ALL_CODES = frozenset({SCAN_FAILED, SCAN_TIMEOUT, OUTPUT_TOO_LARGE, BAD_OUTPUT, BAD_LIMITS, READ_FAILED, EMBEDDER_UNAVAILABLE, EMBED_FAILED, BAD_QUERY})
 
 
 class RetrievalError(Exception):
