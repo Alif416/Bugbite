@@ -8,6 +8,7 @@ from bugbite.adapter.base import ModelAdapter
 from bugbite.adapter.ledger import CostLedger
 from bugbite.adapter.metered import MeteredAdapter
 from bugbite.adapter.privacy_guard import PrivacyGuardAdapter
+from bugbite.adapter.recording import RecordingAdapter, RecordingSink
 from bugbite.adapter.text_action import TextActionAdapter
 from bugbite.config import ConfigError, ModelConfig
 from bugbite.privacy import Sensitivity
@@ -40,6 +41,7 @@ def create_adapter(
     api_key: str | None = None,
     ledger: CostLedger | None = None,
     sensitivity: Sensitivity = Sensitivity.PRIVATE,
+    recorder: RecordingSink | None = None,
 ) -> ModelAdapter:
     """Build the adapter for a model.
 
@@ -51,6 +53,9 @@ def create_adapter(
     `sensitivity` says what kind of data the job holds; the privacy guard (innermost layer) refuses
     every call that the rule forbids. It defaults to PRIVATE: forgetting to say what the data is
     makes a model that cannot take private code refuse instead of leak.
+
+    With a `recorder` (a `bugbite.recorder.RunWriter`), every call to the provider is recorded by a layer directly
+    above the provider adapter and inside the guard (AD-118).
     """
     factory = _factories.get(model.provider)
     if factory is None:
@@ -62,7 +67,10 @@ def create_adapter(
         raise ConfigError(
             f"model '{model.name}' needs an API key: read the {model.api_key_env} environment variable and pass it as api_key"
         )
-    adapter = PrivacyGuardAdapter(factory(model, api_key), sensitivity)  # innermost: the last gate before the network
+    provider = factory(model, api_key)
+    if recorder is not None:
+        provider = RecordingAdapter(provider, recorder)  # records what the provider really returned
+    adapter = PrivacyGuardAdapter(provider, sensitivity)  # the last gate before the network
     if ledger is not None:
         adapter = MeteredAdapter(adapter, ledger)  # inside the text-action wrapper, so a repair is its own entry
     if not model.native_tool_calling:

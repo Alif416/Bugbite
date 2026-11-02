@@ -645,3 +645,29 @@ Safe by design: every value is a query parameter; NUL characters (which PostgreS
 **Full content is stored for every job, private ones included**, with the sensitivity on the job row, because the database is local and the content is what makes analysis and replay possible. Nothing yet decides who may read a private trace; anything that exposes traces (dashboard, API, export) must check `sensitivity`. Not built yet: wiring into `bugbite.local_run` and the CLI, the on-disk recording and replay (P22 to P24), the final solved/failed classification (P40), retention, and a sweeper for jobs left `running` by a dead process.
 
 **Tests.** Most run without a database. The real-PostgreSQL tests start their own `postgres:17` container (random local port and password, labelled `bugbite`, removed afterwards) and give each test a fresh database; they are skipped without Docker. They never use the Homebrew PostgreSQL or any other database on the machine.
+
+### Recording a run
+
+`bugbite.recorder` writes every run to disk so it can be read, compared, and replayed offline (P23, P24; README FR10). A recording is a folder `<root>/<run id>/` (mode 0700, files 0600) with two files:
+
+- `events.jsonl`: one JSON line per event, appended as it happens, so a run that crashes still leaves a readable recording. Event types: `model_call` (one per call to the provider: its response, or its error, or the type name of a bug in the adapter), `step`, `tool_call` (arguments, output, error flag, whether it ran, duration) and `finish`.
+- `manifest.json`: written at the start and replaced atomically at the end. It holds what makes a recording traceable (FR10.4): the model's config (never a key), the prompt and tools versions and the system prompt's hash, the task, the issue, repo, commit and sensitivity, the limits, loop-detection and retry settings, the **Bugbite commit** and whether the working tree was dirty (null when git is not available, never a made-up value), and, at the end, the outcome, the counts, and a SHA-256 of the finished events file.
+
+```python
+from bugbite.recorder import RecordingInfo, start_recording, load_recording
+
+recording = start_recording("recordings", RecordingInfo(model, issue_url, repo, sensitivity, task_text, ref=ref, limits=limits),
+                            scrub=remove_the_key)           # raises RecordingError if the folder cannot be created
+adapter = create_adapter(model, api_key=key, ledger=ledger, sensitivity=s, recorder=recording.writer)
+result = run_agent(adapter, tools, task_text, limits=limits, ledger=ledger, observer=recording.observer)
+recording.close()                                            # or recording.abort("why") from an exception handler
+loaded = load_recording(recording.path)                      # validated; .model_calls(), .tool_calls(), .steps(), .finish()
+```
+
+**Where the model calls are recorded.** `create_adapter(..., recorder=...)` puts a recording layer directly above the provider adapter and inside the privacy guard: text-action, retry, metering, guard, **recording**, provider. So it captures what the provider actually returned, including rate-limit errors and the repair calls of models without native tool calling, a call the guard refuses is never recorded (it is never sent), and replay can swap just the provider adapter for the recording and run everything above it again. It records the neutral types, so it works the same for the Claude and the OpenAI-compatible adapters.
+
+**Requests.** Each `model_call` stores a fingerprint of the request: the SHA-256 of its canonical JSON, its size, and counts of messages, system blocks and tools, plus the sampling settings. Replay uses it to notice that the agent now behaves differently. Pass `record_requests=True` to also store the whole request (several megabytes for a long run).
+
+**Safe by design.** A write problem (disk full, size cap of 200 MB, bad value) is counted in `recording.writer.errors` and never raised, and the manifest then says `incomplete` with the reason. Every string is passed through the caller's `scrub` function first. `load_recording` checks the format and version, that sequence numbers run 1 to n, every event's fields, and (for a complete recording) the hash and counts of the events file; a last line cut off by a crash is ignored with a warning, any other damage raises `RecordingError` naming the file. Recordings hold prompts and file contents for every job, private ones included, with the sensitivity in the manifest: they are private code on your disk, so check `sensitivity` before copying or sharing one. `recordings/` is git-ignored; a small golden recording under `tests/fixtures/` pins the format, and a test regenerates it byte for byte.
+
+Not built yet: replaying (P23, P24), a virtual clock for replay, wiring into `bugbite.local_run` and the CLI, compression and encryption. The events file is flushed but not fsynced, so a power cut can lose the last events (a process crash cannot).

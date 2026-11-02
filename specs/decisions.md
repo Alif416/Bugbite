@@ -944,3 +944,35 @@ Entry format: ID, date, phase, status, decision, why, alternatives considered, c
 - **Why:** The database is local and the owner's. Failure analysis, replay and debugging need the real content, and private-job metadata alone would make private runs impossible to study. Recording the sensitivity keeps the option to hide or refuse private content in the dashboard and in any export later, which is where the P13 open item about private code in traces gets closed. The key must never reach the database, even if a model echoes it.
 - **Alternatives:** Metadata only for private jobs (safer if the database is shared, but loses most of the value); no scrubbing hook (relies on every caller remembering).
 - **Consequences:** Anything that exposes traces (dashboard, export, API) must check the sensitivity. Tests use only their own throwaway database, never the owner's other databases.
+
+## AD-117: A recording is a folder with a manifest and an append-only event log
+
+- **Date:** 2026-11-02 · **Phase:** P22 · **Status:** Accepted (owner agreed)
+- **Decision:** Each run is a folder `<root>/<run_id>/` (mode 0700) with `manifest.json` and `events.jsonl` (files 0600). Events are appended one JSON line at a time as they happen; the manifest is written at the start with status `recording` and replaced atomically at the end with the outcome, counts and a SHA-256 of the finished events file. The manifest also holds the traceability facts of FR10.4: model, prompt and tools versions, configuration, task, limits, and the Bugbite commit with a dirty flag.
+- **Why:** An append-only log survives a crash: whatever was written before the process died can still be read and, for analysis, even replayed up to that point. Plain JSON lines can be read in an editor, diffed, and committed as a test fixture, which is exactly how P23 and the regression tests will use them. The hash and counts in the manifest let a loader tell a complete, untampered recording from a damaged one. Owner-only permissions matter because recordings hold prompts and file contents. The commit and dirty flag make a replay traceable to the code that made the recording (FR10.4); a null commit is stored when git is unavailable rather than a made-up value.
+- **Alternatives:** One JSON file written at the end (lost on a crash, held in memory); a database (that is the trace store's job, P21, and is harder to diff and keep as a fixture).
+- **Consequences:** Format changes need a new `format_version`. The events file is flushed but not fsynced, so a power cut can lose the last events.
+
+## AD-118: Model calls are recorded at the raw provider boundary, inside the privacy guard
+
+- **Date:** 2026-11-02 · **Phase:** P22 · **Status:** Accepted (owner agreed)
+- **Decision:** `RecordingAdapter` wraps the provider adapter directly. The chain from the outside is text-action, retry, metering, privacy guard, recording, provider. Every provider call is recorded as a `model_call` event holding its response, or its error, or the type name of a bug; tool calls and results come from the loop's events.
+- **Why:** This is the only place that sees what the provider actually returned, including failed attempts and the repair calls of models without native tool calling, which the layers above hide or re-do. Replay (P23) can then swap the provider adapter for the recording and run the entire stack above it again, so metering, retries, repairs and loop logic are exercised by every replay. Because the layers below the types are provider-specific but the types themselves are neutral, one recording layer works for the Claude and the OpenAI-compatible adapters alike (FR14.7, P24). Placing it inside the guard means a call the guard refuses, which never reaches a provider, never appears as one.
+- **Alternatives:** Recording at the loop (one reply per step; replay would skip the upper layers and failed attempts would be lost).
+- **Consequences:** Replay needs the same chain above the provider, built from the manifest's settings; time-dependent layers (retry waits, wall-clock caps) need a virtual clock, which is P23's job.
+
+## AD-119: Every request is fingerprinted; full requests are stored only on demand
+
+- **Date:** 2026-11-02 · **Phase:** P22 · **Status:** Accepted (owner agreed)
+- **Decision:** Each `model_call` stores the SHA-256 of the canonical JSON of the request, its size and counts of messages, system blocks and tools, plus the sampling settings. A flag (`record_requests`) also stores the full request.
+- **Why:** Replay has to notice when the agent behaves differently from the recording (a changed prompt, a changed tool description, a different history), and a hash of the exact request does that without storing it. Each request contains the whole conversation so far, so storing all of them grows with the square of the run length; a 30-step run can reach several megabytes and an evaluation batch far more. The flag keeps the option of seeing exactly what was sent when debugging.
+- **Alternatives:** Always full requests (large); no request data (divergence undetectable, so a replay could silently "pass" on different behaviour).
+- **Consequences:** The full request of any step can be rebuilt from the task and the earlier events, which is also what replay does.
+
+## AD-120: Recording never affects a run; content is complete, labelled and scrubbed
+
+- **Date:** 2026-11-02 · **Phase:** P22 · **Status:** Accepted
+- **Decision:** A failed write is counted (`writer.errors`, kind only) and never raised; the manifest then says `incomplete`. A size cap of 200 MB stops a runaway recording the same way. Prompts, replies, file contents and tool output are recorded for every job with the sensitivity in the manifest, and a caller-supplied scrub function is applied to every string before it is written.
+- **Why:** A recording is a record, not part of the work: a full disk must not turn a paid, fixable run into a failure. As in the trace store (AD-116), complete content is what makes replay, regression tests and analysis possible, the files are local and owner-only, and the sensitivity label lets later exports refuse private content. The model key must never be written even if a model or a provider message echoes it.
+- **Alternatives:** Raising on write errors (an outage costs jobs); redacting private jobs (no replay of private runs).
+- **Consequences:** Anything that copies or exports recordings must check `sensitivity`. Recordings of private repos are private code on disk.
