@@ -26,3 +26,6 @@ data/
 .DS_Store
 .idea/
 .vscode/
+
+# recordings of real runs (python API: bugbite.recorder); committed test fixtures live under tests/fixtures/
+recordings/

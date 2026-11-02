@@ -87,3 +87,16 @@ A recording is the folder `<root>/<run_id>/`, `run_id` being a sortable UTC time
 - `events.jsonl` is flushed per event but not fsynced; a power cut can lose the last events (a process crash cannot).
 - Full requests, when enabled, can make a recording several megabytes.
 - The format is version 1; any change to it needs a new version and a migration note.
+
+## Findings from the build
+
+- **Module placement.** The codec and the recording adapter live in the `adapter` package (`bugbite.adapter.codec`, `bugbite.adapter.recording`), not in `recorder`. `create_adapter` has to build the recording layer, and the recorder package imports the agent package, which imports the adapter package: putting them in `recorder` would have been a circular import. The adapter side only talks to a small `RecordingSink` interface that `RunWriter` provides. The writer, the loop observer, the start helper and the reader are in `bugbite.recorder`.
+- **A missed breakage, then fixed.** The first mutation check showed that nothing tested the observer's last-resort exception guard, because the writer already absorbs its own errors. A test now gives the observer a writer that raises on everything and checks the run is unaffected.
+- **A scripting pitfall.** `run_agent` takes its clock as a default argument, bound when the function is defined, so patching `time.monotonic` does not reach it. The byte-for-byte repeatability test passes a fake clock explicitly.
+- **The cost cap worked as designed in the golden scenario's first attempt:** the deliberately expensive test prices made the worst case for step 1 exceed a $0.10 cap, so the run stopped before any call. The golden scenario uses a larger cap.
+- **Commit detection** refuses a git checkout that is not Bugbite's own: a copy of Bugbite installed inside another project's checkout would otherwise report that project's commit. Tested with a package placed in a different repository.
+- **Repeatable bytes.** With fixed wall and monotonic clocks, a fixed run id and a fixed tool-timing clock, two recordings of the same scripted run are identical files; the golden test relies on it.
+- **Reading a raw line** shows the response, usage and tool calls in plain, key-sorted JSON; dense but readable without any tool.
+- **Mutation check:** 23 breakages (a gap in the numbers, fingerprints ignoring the temperature or the tool schemas, a dropped response field, a swallowed error or bug, unscrubbed events, a non-atomic manifest, world-readable folder or events file, recording outside the guard, an unchecked hash, an intolerant torn-line reader, calls assigned to no step, an ignored size cap, wrong counts, full requests always stored, a commit from any checkout, an observer that lets errors escape, a raising writer, double finish, a dropped sequence or event-type check, a wrong run id) are all caught.
+- **Merge note:** `create_adapter` gains a `recorder` option; the P20 branch also edits that function (retry options), so merging the second will need a small, mechanical conflict fix.
+- Full suite (foreground): 2269 passed and 156 skipped with Docker unreachable; 2419 passed and 6 skipped with Docker running; no leftover containers or volumes; no new dependencies.
